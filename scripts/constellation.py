@@ -22,6 +22,7 @@ from bsk_rl import comm, data, scene
 from bsk_rl.gym import NO_ACTION
 from bsk_rl.utils.orbital import walker_delta_args
 
+from config_io import make_oe
 from pilot_bskrl import K_AHEAD, ORBIT, make_sat
 
 REQ = orbitalMotion.REQ_EARTH  # [km]
@@ -39,8 +40,15 @@ def latlon(r):
 
 class Sim:
     def __init__(self, sats=1, planes=None, altitude=500.0, inc=55.0, targets=600, round_s=60.0,
-                 track_dt=10.0, seconds=3 * ORBIT):
-        """seconds: durata dell'episodio [s]; 0/None = senza limite di tempo."""
+                 track_dt=10.0, seconds=3 * ORBIT, plan=None):
+        """seconds: durata dell'episodio [s]; 0/None = senza limite di tempo.
+        plan: piano da file di configurazione (config_io.build_plan); se presente sostituisce
+        satelliti, orbite, stazioni, target e durata, e il seed di default e' quello dello scenario."""
+        self.plan = plan
+        if plan:
+            sc = plan["scenario"]
+            sats, targets, round_s, track_dt = len(plan["sats"]), sc["n_targets"], sc["round_s"], sc["track_dt"]
+            seconds = sc["duration_hours"] * 3600
         if round_s % track_dt:
             raise ValueError("round_s deve essere multiplo di track_dt")
         self.n, self.planes = sats, planes or min(sats, 2)
@@ -56,18 +64,32 @@ class Sim:
     def t(self):
         return self.env.simulator.sim_time
 
-    def reset(self, seed):
+    def _env_args(self):
+        """Argomenti di gym.make che dipendono da come e' definita la costellazione."""
+        if self.plan:
+            specs = self.plan["sats"]
+            return dict(
+                satellites=[make_sat(False, s["name"], s["sat_args"]) for s in specs],
+                # orbite dal file (nessuna casualita'); il seed governa solo i target
+                sat_arg_randomizer=lambda sats: {sat: {"oe": make_oe(s["orbit"])} for sat, s in zip(sats, specs)},
+                world_args=self.plan["world_args"])
+        return dict(
+            satellites=[make_sat(variable_interval=False, name=f"sat_{i + 1}") for i in range(self.n)],
+            # un satellite: orbita casuale (come nel pilota); piu' satelliti: Walker-delta con
+            # fase e nodo casuali dal seed (np.random globale di BSK-RL)
+            sat_arg_randomizer=(walker_delta_args(n_planes=self.planes, altitude=self.altitude, inc=self.inc)
+                                if self.multi else None))
+
+    def reset(self, seed=None):
+        if seed is None:
+            seed = self.plan["scenario"]["seed"] if self.plan else 4
         if self.env is None:
             self.env = gym.make(
                 "GeneralSatelliteTasking-v1",
-                satellites=[make_sat(variable_interval=False, name=f"sat_{i + 1}") for i in range(self.n)],
                 scenario=scene.UniformTargets(self.n_targets),
                 rewarder=data.UniqueImageReward(),
                 communicator=comm.FreeCommunication() if self.multi else None,
-                # un satellite: orbita casuale (come nel pilota); piu' satelliti: Walker-delta con
-                # fase e nodo casuali dal seed (np.random globale di BSK-RL)
-                sat_arg_randomizer=(walker_delta_args(n_planes=self.planes, altitude=self.altitude, inc=self.inc)
-                                    if self.multi else None),
+                **self._env_args(),
                 time_limit=self.seconds,
                 max_step_duration=self.round_s,
                 log_level="ERROR",
@@ -80,10 +102,13 @@ class Sim:
         n = self.n
         self.current, self.charging, self.cum = [None] * n, [False] * n, [0.0] * n
         self.dev_km, self.done = [0.0] * n, False
+        self.img_bits = [s.sat_args["instrumentBaudRate"] for s in self.sats]   # un'immagine = 1 s di strumento
         self._sent = [{} for _ in range(n)]   # (kind, obj, t0) -> indice in trace["satellites"][k]["windows"]
         self._last_sample = 0.0
 
-        stations = [dict(name=g["name"], lat=g["lat"], lon=g["long"]) for g in env.world_args["groundStationsData"]]
+        stations = [dict(name=g["name"], lat=g["lat"], lon=g["long"],
+                         min_elev_deg=round(float(np.degrees(g.get("gsMinimumElevation", env.world_args["gsMinimumElevation"]))), 1))
+                    for g in env.world_args["groundStationsData"]]
         self.sidx = {"GroundStation" + s["name"]: i for i, s in enumerate(stations)}
         tlat, tlon = latlon(np.array([x.r_LP_P for x in self.targets]))
         sat_out = []
@@ -96,7 +121,7 @@ class Sim:
                     inclination_deg=round(float(np.degrees(oe.i)), 2), altitude_km=round(float(alt[0]), 1),
                     raan_deg=round(float(np.degrees(oe.Omega)) % 360, 1),
                     image_min_elev_deg=round(float(np.degrees(sat.sat_args["imageTargetMinimumElevation"])), 1),
-                    storage_capacity=round(sat.dynamics.storageUnit.storageCapacity / IMG_BITS, 1),
+                    storage_capacity=round(sat.dynamics.storageUnit.storageCapacity / self.img_bits[k], 1),
                     track_vs_sim_max_km=0.0,
                 ),
                 track=dict(lat=lat, lon=lon, alt_km=alt), windows=[], rounds=[], imaged=[],
@@ -108,7 +133,9 @@ class Sim:
                 infinite=self.seconds == float("inf"),
                 gs_min_elev_deg=round(float(np.degrees(env.world_args.get("gsMinimumElevation", np.radians(10)))), 1),
                 earth_radius_km=REQ, track_dt=self.track_dt,
-                constellation=(f"Walker-delta: {n} satelliti, {self.planes} piani, {self.altitude:.0f} km, "
+                constellation=(f"{self.plan['name']}: {n} satelliti da file di configurazione, epoca "
+                               f"{self.plan['world_args']['utc_init']}, target casuali dal seed") if self.plan else
+                              (f"Walker-delta: {n} satelliti, {self.planes} piani, {self.altitude:.0f} km, "
                                f"{self.inc:.0f} deg, fase e nodo casuali dal seed; comunicazione libera tra satelliti")
                 if self.multi else "satellite singolo, orbita casuale dal seed",
                 note="Posizioni dalla traiettoria usata da BSK-RL per le finestre di accesso "
@@ -201,7 +228,7 @@ class Sim:
             r = env.reward_dict.get(sat.name, 0.0)
             self.cum[k] += r
             rnd = dict(t0=t0, t1=t1, action=labels[k], target=tgts[k], reward=round(r, 4), cum_reward=round(self.cum[k], 4),
-                       storage=round(sat.dynamics.storage_level / IMG_BITS, 2),
+                       storage=round(sat.dynamics.storage_level / self.img_bits[k], 2),
                        battery=round(sat.dynamics.battery_charge_fraction, 3), imaged=sat.imaged, alive=bool(sat.is_alive()))
             tr["rounds"].append(rnd)
             imaged = []

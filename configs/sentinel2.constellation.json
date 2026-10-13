@@ -1,0 +1,15 @@
+{
+  "schema": "constellation/v1",
+  "name": "Sentinel-2 (due satelliti, stesso piano)",
+  "_note": "Valori pubblici approssimati, DA VERIFICARE sulle fonti ESA prima di usarli in tesi: quota 786 km, sun-synchronous con passaggio discendente alle 10:30, swath 290 km, due satelliti sfasati di 180 gradi nello stesso piano. Tutto cio' che non e' indicato (batteria, memoria, massa, data rate, ruote) resta al default di BSK-RL, che descrive un satellite agile da 330 kg e NON Sentinel-2. Sentinel-2 reale e' nadir-pointing (push-broom, nessuno slew): qui diventa un satellite agile che puo' riprendere i target dentro la swath.",
+  "instrument": { "swath_km": 290 },
+  "satellites": [
+    { "name": "S2A", "orbit": { "type": "sun_synchronous", "altitude_km": 786, "ltdn_hours": 10.5, "true_anomaly_deg": 0 } },
+    { "name": "S2B", "orbit": { "type": "sun_synchronous", "altitude_km": 786, "ltdn_hours": 10.5, "true_anomaly_deg": 180 } }
+  ],
+  "ground_stations": [
+    { "name": "Svalbard",   "lat": 78.2297, "lon": 15.3975,  "elevation_m": 0,  "min_elevation_deg": 5 },
+    { "name": "Matera",     "lat": 40.6486, "lon": 16.7046,  "elevation_m": 500, "min_elevation_deg": 5 },
+    { "name": "Maspalomas", "lat": 27.7629, "lon": -15.6338, "elevation_m": 0,  "min_elevation_deg": 5 }
+  ]
+}

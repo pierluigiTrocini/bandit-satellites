@@ -1,0 +1,11 @@
+{
+  "schema": "scenario/v1",
+  "name": "24 ore, 600 target casuali",
+  "seed": 4,
+  "epoch": "2025-03-21T00:00:00Z",
+  "duration_hours": 24,
+  "round_s": 60,
+  "track_dt": 10,
+  "targets": { "mode": "random", "count": 600 },
+  "non_stationarity": null
+}

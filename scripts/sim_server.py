@@ -5,6 +5,10 @@ Solo libreria standard. Endpoint:
                   per ogni round (delta + stato) e `status` a fine episodio
   GET  /status    stato corrente (JSON)
   GET  /trace.json  traccia accumulata finora
+  POST /scenario  {"constellation": {...}, "scenario": {...}}: valida i due file di configurazione
+                  (configs/README.md) e riavvia l'episodio con essi; 400 con la lista degli errori
+                  se non sono validi. Un file omesso resta quello in uso.
+  GET  /config    configurazione in uso (JSON dei due file, se l'episodio viene da file)
   POST /control   {"action": "pause" | "resume" | "restart" (con "seed" opzionale)}
                   {"action": "speed", "speed": <secondi simulati per secondo reale> | "max"}
 
@@ -24,6 +28,7 @@ import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import config_io
 from constellation import Sim
 
 
@@ -31,7 +36,8 @@ class Hub:
     def __init__(self, sim, seed, speed, paused):
         self.sim, self.seed, self.speed, self.paused = sim, seed, speed, paused
         self.cond = threading.Condition(threading.RLock())
-        self.subs, self.restart_seed = [], None
+        self.subs, self.restart_seed, self.pending = [], None, None
+        self.config = None                 # {"constellation": ..., "scenario": ...} validati, se da file
         sim.reset(seed)
 
     def status(self):
@@ -81,10 +87,47 @@ class Hub:
             self.cond.notify_all()
             return self.status()
 
+    def load_config(self, msg):
+        """Valida (fuori dal lock) e mette in coda la sostituzione dell'episodio; la esegue il thread di
+        simulazione, come per il riavvio. Solleva ConfigError se i file non sono validi."""
+        if not isinstance(msg, dict):
+            raise config_io.ConfigError(["il corpo deve essere un oggetto con 'constellation' e/o 'scenario'"])
+        unknown = [k for k in msg if k not in ("constellation", "scenario")]
+        if unknown:
+            raise config_io.ConfigError([f"chiave sconosciuta: {k}" for k in unknown])
+        with self.cond:
+            cur = dict(self.config or {})
+        cons, scen = msg.get("constellation", cur.get("constellation")), msg.get("scenario", cur.get("scenario"))
+        if cons is None:
+            raise config_io.ConfigError(["manca il file di costellazione (constellation/v1)"])
+        plan = config_io.build_plan(config_io.load_constellation(cons), config_io.load_scenario(scen))
+        sim = Sim(plan=plan)
+        seed = plan["scenario"]["seed"]
+        with self.cond:                            # si conservano i file grezzi, rileggibili da load_*
+            self.pending = (sim, dict(constellation=cons, scenario=scen), seed)
+            self.cond.notify_all()
+        return dict(ok=True, satellites=len(plan["sats"]), stations=len(plan["stations"]), seed=seed)
+
     def run(self):
         anchor = None                      # (istante reale, istante simulato, velocita') per il ritmo
         while True:
             with self.cond:
+                if self.pending is not None:
+                    (sim, cfg, seed), self.pending = self.pending, None
+                    old = self.sim
+                    try:
+                        sim.reset(seed)
+                    except Exception as e:             # la nuova configurazione non e' simulabile: si resta sulla vecchia
+                        traceback.print_exc()
+                        self.broadcast("status", json.dumps(dict(self.status(), error=f"configurazione rifiutata da BSK-RL: {e}")))
+                        continue
+                    self.sim, self.config, self.seed, anchor = sim, cfg, seed, None
+                    try:
+                        old.env.close()
+                    except Exception:
+                        pass
+                    self.broadcast("snapshot", json.dumps(dict(trace=self.sim.trace, status=self.status())))
+                    continue
                 if self.restart_seed is not None:
                     self.seed, self.restart_seed = self.restart_seed, None
                     self.sim.reset(self.seed)
@@ -136,6 +179,9 @@ def make_handler(hub):
         def do_GET(self):
             if self.path.startswith("/status"):
                 return self._send(200, json.dumps(hub.status()))
+            if self.path.startswith("/config"):
+                with hub.cond:
+                    return self._send(200, json.dumps(hub.config))
             if self.path.startswith("/trace.json"):
                 with hub.cond:
                     return self._send(200, json.dumps(hub.sim.trace))
@@ -161,11 +207,18 @@ def make_handler(hub):
                 hub.unsubscribe(q)
 
         def do_POST(self):
-            if not self.path.startswith("/control"):
+            if not self.path.startswith(("/control", "/scenario")):
                 return self._send(404, '{"error":"not found"}')
             try:
-                msg = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                n = int(self.headers.get("Content-Length", 0))
+                if n > 1_000_000:
+                    return self._send(413, json.dumps({"error": "file troppo grande (max 1 MB)"}))
+                msg = json.loads(self.rfile.read(n) or b"{}")
+                if self.path.startswith("/scenario"):
+                    return self._send(200, json.dumps(hub.load_config(msg)))
                 self._send(200, json.dumps(hub.control(msg)))
+            except config_io.ConfigError as e:
+                self._send(400, json.dumps({"error": "configurazione non valida", "errors": e.errors}))
             except (ValueError, TypeError) as e:
                 self._send(400, json.dumps({"error": str(e)}))
 
@@ -176,7 +229,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8081)
-    ap.add_argument("--seed", type=int, default=4)
+    ap.add_argument("--constellation", help="file JSON della costellazione (sostituisce --sats/--planes/--altitude/--inc)")
+    ap.add_argument("--scenario", help="file JSON dello scenario (durata, round, target, seed, epoca)")
+    ap.add_argument("--seed", type=int, default=None, help="default: 4, o il seed dello scenario")
     ap.add_argument("--sats", type=int, default=3)
     ap.add_argument("--planes", type=int, default=None)
     ap.add_argument("--altitude", type=float, default=500.0)
@@ -189,9 +244,25 @@ def main():
     ap.add_argument("--paused", action="store_true", help="parte in pausa")
     a = ap.parse_args()
 
-    sim = Sim(sats=a.sats, planes=a.planes, altitude=a.altitude, inc=a.inc, targets=a.targets,
-              round_s=a.round, track_dt=a.track_dt, seconds=a.hours * 3600)
+    cfg = None
+    if a.constellation:
+        try:
+            cfg = dict(constellation=config_io._load(a.constellation),
+                       scenario=config_io._load(a.scenario) if a.scenario else None)
+            plan = config_io.build_plan(config_io.load_constellation(cfg["constellation"]),
+                                        config_io.load_scenario(cfg["scenario"]))
+        except config_io.ConfigError as e:
+            ap.error("configurazione non valida:\n  " + "\n  ".join(e.errors))
+        sim = Sim(plan=plan)
+        a.sats = len(plan["sats"])
+        if a.seed is None:
+            a.seed = plan["scenario"]["seed"]
+    else:
+        sim = Sim(sats=a.sats, planes=a.planes, altitude=a.altitude, inc=a.inc, targets=a.targets,
+                  round_s=a.round, track_dt=a.track_dt, seconds=a.hours * 3600)
+    a.seed = 4 if a.seed is None else a.seed
     hub = Hub(sim, a.seed, None if a.speed == "max" else float(a.speed), a.paused)
+    hub.config = cfg
 
     def loop():
         try:

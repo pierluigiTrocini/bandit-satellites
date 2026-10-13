@@ -34,6 +34,8 @@
   .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
   #bar, #liveBar { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
   #liveBar { flex-wrap: wrap; }
+  #lvErr { margin: 8px 0 0; padding: 8px 10px; border: 1px solid #c0504d; border-radius: 6px; font: 12px/1.4 ui-monospace, monospace;
+    white-space: pre-wrap; max-height: 9em; overflow: auto; cursor: pointer; }
   #lvInfo { color: var(--muted); font-size: 12px; }
   #lvLive.on { background: #e5484d; border-color: #e5484d; color: #fff; font-weight: 600; }
   #time { flex: 1; accent-color: var(--accent); }
@@ -115,8 +117,11 @@
       <select id="lvSpeed" title="Velocità della simulazione (secondi simulati per secondo reale)" aria-label="Velocità simulazione"></select>
       <button id="lvRestart" title="Riavvia l'episodio" aria-label="Riavvia">↻</button>
       <button id="lvLive" title="Segui l'istante più recente / torna al live">● LIVE</button>
+      <button id="lvImport" title="Importa i file JSON di costellazione e/o scenario (si possono scegliere insieme)">⇪ Importa</button>
+      <input type="file" id="lvFiles" accept=".json,application/json" multiple hidden>
       <span id="lvInfo"></span>
     </div>
+    <pre id="lvErr" hidden role="alert" title="Clic per chiudere"></pre>
     <div id="bar">
       <button id="play" aria-label="Play/pausa">▶</button>
       <input type="range" id="time" min="0" max="1" step="1" value="0" aria-label="Tempo">
@@ -690,6 +695,30 @@ $("lvPause").onclick = () => liveCtl({ action: L.status && L.status.paused ? "re
 $("lvSpeed").onchange = e => liveCtl({ action: "speed", speed: e.target.value === "max" ? "max" : +e.target.value });
 $("lvRestart").onclick = () => liveCtl({ action: "restart" });
 $("lvLive").onclick = () => { L.follow = true; setStatus(L.status); };
+
+// Importazione: i file si riconoscono dal campo "schema" (constellation/v1 o scenario/v1); li valida il server.
+function showErr(lines) { const e = $("lvErr"); e.textContent = lines.join("\n"); e.hidden = !lines.length; }
+$("lvErr").onclick = () => showErr([]);
+$("lvImport").onclick = () => $("lvFiles").click();
+$("lvFiles").onchange = async e => {
+  const body = {}, errs = [];
+  for (const f of e.target.files) {
+    try {
+      const j = JSON.parse(await f.text()), kind = String(j.schema || "").split("/")[0];
+      if (kind !== "constellation" && kind !== "scenario") errs.push(`${f.name}: manca "schema" (constellation/v1 o scenario/v1)`);
+      else if (kind in body) errs.push(`${f.name}: secondo file di tipo ${kind}`);
+      else body[kind] = j;
+    } catch (x) { errs.push(`${f.name}: JSON non valido (${x.message})`); }
+  }
+  e.target.value = "";
+  if (!errs.length && !Object.keys(body).length) return;
+  if (!errs.length) {
+    const r = await fetch(LIVE + "/scenario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(async r => ({ ok: r.ok, j: await r.json() })).catch(() => ({ ok: false, j: { error: "server non raggiungibile" } }));
+    if (!r.ok) errs.push(...(r.j.errors || [r.j.error]));
+  }
+  showErr(errs);
+};
 
 async function boot() {
   const msg = $("msg");

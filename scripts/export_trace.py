@@ -11,12 +11,15 @@ import argparse
 import json
 from pathlib import Path
 
+import config_io
 from constellation import ORBIT, Sim
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--seed", type=int, default=4)  # seed con finestre di downlink
+    ap.add_argument("--constellation", help="file JSON della costellazione (configs/); sostituisce --sats/--planes/...")
+    ap.add_argument("--scenario", help="file JSON dello scenario (default: valori di config_io.load_scenario)")
+    ap.add_argument("--seed", type=int, default=None, help="default: 4, o il seed dello scenario")
     ap.add_argument("--orbits", type=float, default=3.0)
     ap.add_argument("--targets", type=int, default=600)
     ap.add_argument("--round", type=float, default=60.0, help="durata round [s]")
@@ -28,8 +31,17 @@ def main():
     ap.add_argument("--out", default="outputs/traces")
     a = ap.parse_args()
 
-    sim = Sim(sats=a.sats, planes=a.planes, altitude=a.altitude, inc=a.inc, targets=a.targets,
-              round_s=a.round, track_dt=a.track_dt, seconds=a.orbits * ORBIT)
+    if a.constellation:
+        try:
+            plan = config_io.build_plan(config_io.load_constellation(a.constellation), config_io.load_scenario(a.scenario))
+        except config_io.ConfigError as e:
+            ap.error("configurazione non valida:\n  " + "\n  ".join(e.errors))
+        sim = Sim(plan=plan)
+        a.sats = len(plan["sats"])
+    else:
+        sim = Sim(sats=a.sats, planes=a.planes, altitude=a.altitude, inc=a.inc, targets=a.targets,
+                  round_s=a.round, track_dt=a.track_dt, seconds=a.orbits * ORBIT)
+    a.seed = a.seed if a.seed is not None else (plan["scenario"]["seed"] if a.constellation else 4)
     sim.reset(a.seed)
     while not sim.done:
         sim.step()
@@ -38,7 +50,8 @@ def main():
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    path = out / (f"trace_seed{a.seed}_{a.sats}sats.json" if a.sats > 1 else f"trace_seed{a.seed}.json")
+    stem = Path(a.constellation).name.split(".")[0] + "_" if a.constellation else ""
+    path = out / (f"trace_{stem}seed{a.seed}_{a.sats}sats.json" if a.sats > 1 else f"trace_{stem}seed{a.seed}.json")
     path.write_text(json.dumps(trace, separators=(",", ":")))
     print(f"{path} ({path.stat().st_size / 1e3:.0f} kB): t_end={trace['meta']['t_end']:.0f}s, "
           f"round={len(trace['satellites'][0]['rounds'])}")
