@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Viewer BSK-RL</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b1020; --panel: #121a2e; --line: #243049; --text: #d7def0; --muted: #8a96b3;
+    --accent: #4cc9f0; --ok: #5ee08a; --pend: #ffb454; --gs: #ff6b9d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 600; }
+  select, button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: .5; }
+  .seg { display: inline-flex; }
+  .seg button { border-radius: 0; margin-left: -1px; }
+  .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 6px 6px 0; }
+  .seg button.on { background: var(--accent); border-color: var(--accent); color: #05212b; font-weight: 600; }
+  .seg small { font-size: 10px; opacity: .8; }
+  label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; padding: 16px; }
+  #stage { min-width: 0; }
+  #map { position: relative; width: 100%; background: #050b18; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  #map canvas { display: block; width: 100%; }
+  .zoom { position: absolute; top: 8px; left: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .zoom button { width: 28px; height: 28px; padding: 0; background: rgba(18,26,46,.85); }
+  #coord { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 10em; font-size: 12px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  #bar { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  #time { flex: 1; accent-color: var(--accent); }
+  #clock { font-variant-numeric: tabular-nums; min-width: 8.5em; text-align: right; color: var(--muted); }
+  [hidden] { display: none !important; }
+  aside { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; align-self: start; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
+  h2:first-child { margin-top: 0; }
+  h2 span { float: right; text-transform: none; letter-spacing: 0; }
+  /* riquadro del satellite: appare accanto al satellite quando è seguito */
+  #satcard { position: absolute; z-index: 2; width: 230px; max-height: calc(100% - 16px); display: flex; flex-direction: column; font-size: 12px;
+    background: rgba(18,26,46,.93); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(3px); }
+  #satcard .body { overflow-y: auto; min-height: 0; }
+  #satcard .head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 6px;
+    cursor: grab; touch-action: none; user-select: none; }
+  #satcard.dragging .head { cursor: grabbing; }
+  #satcard .head button { padding: 0 6px; line-height: 18px; border: 0; background: none; color: var(--muted); font-size: 16px; }
+  #satcard h2 { margin: 10px 0 4px; }
+  #satcard details { margin-top: 10px; font-size: 12px; }
+  #satcard summary { cursor: pointer; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: 600; }
+  #satcard dl { margin-top: 6px; }
+  .act { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .badge { padding: 1px 8px; border-radius: 10px; font-weight: 600; color: #05212b; background: var(--accent); }
+  .badge.downlink { background: var(--gs); } .badge.charge { background: var(--ok); }
+  .sub { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; }
+  dt { color: var(--muted); } dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin: 2px 0 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+  .legend div { margin: 2px 0; color: var(--muted); }
+  details { margin-top: 14px; color: var(--muted); font-size: 12px; }
+  #msg { color: var(--pend); padding: 16px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Viewer BSK-RL</h1>
+  <select id="trace" aria-label="Traccia"></select>
+  <div class="seg" id="viewSeg" aria-label="Vista">
+    <button data-v="2d" class="on">2D</button>
+    <button data-v="3d" disabled title="Vista 3D: in sviluppo (WIP)">3D <small>WIP</small></button>
+  </div>
+  <div class="seg" id="earthSeg" aria-label="Terra">
+    <button data-e="image" class="on">Immagine</button>
+    <button data-e="outline">Contorni</button>
+  </div>
+  <label><input type="checkbox" id="fov" checked> Campo visivo</label>
+  <label><input type="checkbox" id="track" checked> Traccia</label>
+  <label title="Centra la mappa sul satellite (anche con un clic sul satellite)"><input type="checkbox" id="follow"> Segui satellite</label>
+  <label title="Mostra il riquadro con i dati del satellite seguito"><input type="checkbox" id="info" checked> Info satellite</label>
+</header>
+<div id="msg" hidden></div>
+<main>
+  <div id="stage">
+    <div id="map">
+      <div id="view"></div>
+      <div id="satcard" hidden>
+        <div class="head" id="cardHead" title="Trascina per spostare · doppio clic per riposizionare accanto al satellite"><span>SAT</span><button id="infoClose" title="Nascondi (si riapre da «Info satellite»)" aria-label="Nascondi info">×</button></div>
+        <div class="body">
+          <div class="act"><span id="pAct" class="badge">–</span><span id="pTgt" class="sub" style="margin:0"></span></div>
+          <div class="sub" id="pRnd"></div>
+          <dl>
+            <dt>Reward round</dt><dd id="pRew">–</dd>
+            <dt>Reward cumulato</dt><dd id="pCum">–</dd>
+            <dt>Immagini</dt><dd id="pImg">–</dd>
+          </dl>
+          <h2>Buffer immagini <span id="pSto"></span></h2>
+          <div class="bar"><i id="bSto"></i></div>
+          <h2>Batteria <span id="pBat"></span></h2>
+          <div class="bar"><i id="bBat" style="background:var(--ok)"></i></div>
+          <details><summary>Episodio</summary><dl id="meta"></dl></details>
+        </div>
+      </div>
+    </div>
+    <div id="bar">
+      <button id="play" aria-label="Play/pausa">▶</button>
+      <input type="range" id="time" min="0" max="1" step="1" value="0" aria-label="Tempo">
+      <select id="speed" aria-label="Velocità">
+        <option value="60">1 min/s</option><option value="300" selected>5 min/s</option>
+        <option value="900">15 min/s</option><option value="3000">50 min/s</option>
+      </select>
+      <span id="coord"></span><span id="clock"></span>
+    </div>
+    <p class="hint">Rotella: zoom · Trascina: sposta · Doppio clic: vista intera · Clic sul satellite: segui</p>
+  </div>
+  <aside>
+    <h2>Legenda</h2>
+    <div class="legend">
+      <div><span class="dot" style="background:var(--pend)"></span>target in attesa (più opaco = priorità alta)</div>
+      <div><span class="dot" style="background:var(--ok)"></span>target ripreso</div>
+      <div><span class="dot" style="border:1.5px solid var(--accent)"></span>finestra di accesso aperta</div>
+      <div><span class="dot" style="border:2px solid #fff"></span>target assegnato al round</div>
+      <div><span style="color:var(--gs);margin-right:5px">▲</span>stazione a terra</div>
+    </div>
+    <details><summary>Limiti del modello</summary><p id="note"></p></details>
+  </aside>
+</main>
+
+<script>
+"use strict";
+const D2R = Math.PI / 180;
+const $ = id => document.getElementById(id);
+const S = { trace: null, t: 0, playing: false, speed: 300, view: "2d", earth: "image", fov: true, track: true, follow: false, info: true, cardOff: null };
+const assets = { earth: null, coast: null };
+
+// ---------- Interfaccia dei renderer ------------------------------------------------
+// Ogni vista implementa: mount(el), unmount(), resize(), draw(S, d), satAnchor()
+//   S = stato UI, d = grandezze derivate dall'istante S.t (vedi derive()).
+//   satAnchor() -> {x, y, r} posizione del satellite e raggio del suo campo visivo in px
+//   (coordinate di #map): serve a posizionare il riquadro info, che è comune a tutte le viste.
+// La vista 3D (WIP) andrà aggiunta a `renderers` con la stessa interfaccia e abilitando
+// il pulsante data-v="3d": crea un proprio <canvas> in mount() (WebGL e 2D non si mescolano).
+// Vista 2D (equirettangolare) con telecamera: zoom, trascinamento, mondo ripetuto
+// all'infinito in longitudine, inseguimento del satellite. Stato camera: centro (cx, cy)
+// in gradi (cx non limitato) e zoom z rispetto alla vista intera (px/grado = z * W/360).
+const ZMIN = 0.5, ZMAX = 30;
+class Map2D {
+  constructor() { this.cam = { cx: 0, cy: 0, z: 1 }; this.off = 0; this.sat = null; }
+  get sc() { return this.cam.z * this.W / 360; }
+  X(lon) { return this.W / 2 + (lon + this.off - this.cam.cx) * this.sc; }
+  Y(lat) { return this.H / 2 - (lat - this.cam.cy) * this.sc; }
+
+  mount(el) {
+    this.cv = document.createElement("canvas");
+    this.ctx = this.cv.getContext("2d");
+    this.ui = document.createElement("div");
+    this.ui.className = "zoom";
+    [["+", "Zoom +", () => this.zoomAt(1.5, this.W / 2, this.H / 2)],
+     ["−", "Zoom −", () => this.zoomAt(1 / 1.5, this.W / 2, this.H / 2)],
+     ["⌂", "Vista intera", () => this.reset()]].forEach(([t, title, fn]) => {
+      const b = document.createElement("button"); b.textContent = t; b.title = title; b.onclick = fn; this.ui.append(b);
+    });
+    el.replaceChildren(this.cv, this.ui);
+    this.bind();
+    this.resize();
+  }
+  unmount() { this.cv.remove(); this.ui.remove(); }
+  resize() {
+    const dpr = window.devicePixelRatio || 1;
+    this.W = this.cv.parentElement.clientWidth || 800;
+    this.H = this.W / 2;
+    this.cv.width = Math.round(this.W * dpr);
+    this.cv.height = Math.round(this.H * dpr);
+    this.cv.style.height = this.H + "px";
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.clamp();
+  }
+  clamp() {            // in verticale la mappa non esce dai poli; in orizzontale è libera
+    const half = this.H / this.sc / 2;
+    this.cam.cy = half >= 90 ? 0 : Math.max(-90 + half, Math.min(90 - half, this.cam.cy));
+  }
+  reset() { setFollow(false); this.cam = { cx: 0, cy: 0, z: 1 }; render(); }
+  onFollow(on) { if (on && this.cam.z < 4) this.cam.z = 4; }
+
+  zoomAt(f, mx, my) {
+    const c = this.cam, z1 = Math.max(ZMIN, Math.min(ZMAX, c.z * f));
+    if (z1 === c.z) return;
+    if (S.follow) { c.z = z1; }          // con l'inseguimento il centro resta sul satellite
+    else {
+      const s0 = this.sc, lon = c.cx + (mx - this.W / 2) / s0, lat = c.cy - (my - this.H / 2) / s0;
+      c.z = z1;
+      const s1 = this.sc; c.cx = lon - (mx - this.W / 2) / s1; c.cy = lat + (my - this.H / 2) / s1;
+    }
+    this.clamp(); render();
+  }
+
+  bind() {
+    const cv = this.cv; let drag = null;
+    const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    cv.style.cursor = "grab";
+    cv.addEventListener("wheel", e => { e.preventDefault(); const [mx, my] = pos(e); this.zoomAt(Math.exp(-e.deltaY * 0.0015), mx, my); }, { passive: false });
+    cv.addEventListener("pointerdown", e => {
+      cv.setPointerCapture(e.pointerId);
+      drag = { x: e.clientX, y: e.clientY, cx: this.cam.cx, cy: this.cam.cy, moved: false };
+    });
+    cv.addEventListener("pointermove", e => {
+      const [mx, my] = pos(e), s = this.sc;
+      if (drag) {
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (!drag.moved && Math.hypot(dx, dy) > 3) {
+          drag.moved = true; cv.style.cursor = "grabbing";
+          if (S.follow) { setFollow(false); Object.assign(drag, { x: e.clientX, y: e.clientY, cx: this.cam.cx, cy: this.cam.cy }); return; }
+        }
+        if (drag.moved) { this.cam.cx = drag.cx - dx / s; this.cam.cy = drag.cy + dy / s; this.clamp(); render(); }
+      } else cv.style.cursor = this.hitSat(mx, my) ? "pointer" : "grab";
+      const lon = ((this.cam.cx + (mx - this.W / 2) / s + 180) % 360 + 360) % 360 - 180, lat = this.cam.cy - (my - this.H / 2) / s;
+      if (Math.abs(lat) <= 90) $("coord").textContent = `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
+    });
+    cv.addEventListener("pointerup", e => {
+      cv.style.cursor = "grab";
+      const [mx, my] = pos(e);
+      if (drag && !drag.moved && this.hitSat(mx, my)) setFollow(!S.follow);
+      drag = null;
+    });
+    cv.addEventListener("pointerleave", () => { $("coord").textContent = ""; });
+    cv.addEventListener("dblclick", () => this.reset());
+  }
+  satAnchor() {                      // posizione del satellite in px (coordinate di #map) e raggio del campo visivo
+    if (!this.sat) return null;
+    const lon = this.sat.lon + 360 * Math.round((this.cam.cx - this.sat.lon) / 360), sc = this.sc;
+    return { x: this.W / 2 + (lon - this.cam.cx) * sc, y: this.H / 2 - (this.sat.lat - this.cam.cy) * sc,
+             r: Math.max(14, this.sat.lam / D2R * sc) };
+  }
+  hitSat(mx, my) {                   // clic vicino al marker del satellite (copia di mondo più vicina)
+    if (!this.sat) return false;
+    const lon = this.sat.lon + 360 * Math.round((this.cam.cx - this.sat.lon) / 360);
+    const sx = this.W / 2 + (lon - this.cam.cx) * this.sc, sy = this.H / 2 - (this.sat.lat - this.cam.cy) * this.sc;
+    return Math.hypot(mx - sx, my - sy) < 14;
+  }
+
+  line(lons, lats, to) {             // polilinea che si interrompe sull'antimeridiano
+    const c = this.ctx; let prev = null;
+    c.beginPath();
+    for (let i = 0; i <= to; i++) {
+      const wrap = prev !== null && Math.abs(lons[i] - prev) > 180;
+      if (prev === null || wrap) c.moveTo(this.X(lons[i]), this.Y(lats[i])); else c.lineTo(this.X(lons[i]), this.Y(lats[i]));
+      prev = lons[i];
+    }
+    c.stroke();
+  }
+
+  draw(s, d) {
+    const { ctx: c, W, H } = this, tr = s.trace, u = Math.max(W / 1000, .8);
+    if (s.follow) {                  // il centro segue il satellite senza saltare tra copie del mondo
+      this.cam.cx = d.lon + 360 * Math.round((this.cam.cx - d.lon) / 360);
+      this.cam.cy = d.lat; this.clamp();
+    }
+    this.sat = d;
+    const sc = this.sc, left = this.cam.cx - W / 2 / sc, right = this.cam.cx + W / 2 / sc;
+    const k0 = Math.floor((left + 180) / 360), k1 = Math.floor((right + 180) / 360);
+    const copies = []; for (let k = k0; k <= k1; k++) copies.push(360 * k);
+
+    // --- livello base: sfondo, immagine/contorni, graticola
+    c.fillStyle = "#050b18"; c.fillRect(0, 0, W, H);
+    c.imageSmoothingQuality = "high";
+    for (this.off of copies) {
+      if (s.earth === "image" && assets.earth) c.drawImage(assets.earth, this.X(-180), this.Y(90), 360 * sc, 180 * sc);
+      if (s.earth === "outline" && assets.coast) {
+        c.strokeStyle = "rgba(190,205,235,.75)"; c.lineWidth = 1;
+        for (const l of assets.coast) { c.beginPath(); l.forEach((p, i) => i ? c.lineTo(this.X(p[0]), this.Y(p[1])) : c.moveTo(this.X(p[0]), this.Y(p[1]))); c.stroke(); }
+      }
+    }
+    this.off = 0;
+    const step = [.5, 1, 2, 5, 10, 15, 30].find(g => g * sc >= 45) ?? 30;
+    c.strokeStyle = "rgba(255,255,255,.08)"; c.lineWidth = 1; c.beginPath();
+    for (let lo = Math.ceil(left / step) * step; lo <= right; lo += step) { c.moveTo(this.X(lo), 0); c.lineTo(this.X(lo), H); }
+    for (let la = -90; la <= 90; la += step) { c.moveTo(0, this.Y(la)); c.lineTo(W, this.Y(la)); }
+    c.stroke();
+
+    // --- livello dati, ripetuto per ogni copia visibile del mondo
+    c.font = `${Math.max(10, 11 * u)}px system-ui, sans-serif`; c.textBaseline = "middle";
+    for (this.off of copies) {
+      if (s.track) {
+        const T = tr.track;
+        c.lineWidth = 1; c.strokeStyle = "rgba(255,255,255,.22)"; this.line(T.lon, T.lat, T.lon.length - 1);
+        c.lineWidth = 1.6; c.strokeStyle = "rgba(255,255,255,.8)"; this.line(T.lon, T.lat, d.i);
+      }
+      tr.stations.forEach(g => {
+        const X = this.X(g.lon), Y = this.Y(g.lat), r = 4 * u;
+        if (X < -60 || X > W + 60) return;
+        c.fillStyle = "#ff6b9d"; c.beginPath(); c.moveTo(X, Y - r); c.lineTo(X + r, Y + r); c.lineTo(X - r, Y + r); c.closePath(); c.fill();
+        c.fillStyle = "rgba(255,200,220,.9)"; c.fillText(g.name, X + r + 3, Y);
+      });
+      tr.targets.forEach((g, i) => {
+        const X = this.X(g.lon), Y = this.Y(g.lat), r = (1.4 + 1.8 * g.priority) * u;
+        if (X < -10 || X > W + 10 || Y < -10 || Y > H + 10) return;
+        c.beginPath(); c.arc(X, Y, r, 0, 6.2832);
+        c.fillStyle = tr._imagedAt[i] <= s.t ? "#5ee08a" : `rgba(255,180,84,${.3 + .7 * g.priority})`; c.fill();
+        if (d.open.has(i)) { c.strokeStyle = "#4cc9f0"; c.lineWidth = 1.2; c.beginPath(); c.arc(X, Y, r + 2.5 * u, 0, 6.2832); c.stroke(); }
+      });
+      if (s.fov) {
+        c.fillStyle = "rgba(76,201,240,.16)"; c.strokeStyle = "rgba(76,201,240,.9)"; c.lineWidth = 1.2; c.beginPath();
+        d.fp.forEach((p, k) => k ? c.lineTo(this.X(p[0]), this.Y(p[1])) : c.moveTo(this.X(p[0]), this.Y(p[1])));
+        c.closePath(); c.fill(); c.stroke();
+      }
+      const SX = this.X(d.lon), SY = this.Y(d.lat);
+      const link = (lon, lat, col, dash) => {
+        if (Math.abs(lon - d.lon) > 180) return;
+        c.strokeStyle = col; c.lineWidth = 1.4; c.setLineDash(dash); c.beginPath(); c.moveTo(SX, SY); c.lineTo(this.X(lon), this.Y(lat)); c.stroke(); c.setLineDash([]);
+      };
+      if (d.round && d.round.action === "image" && d.round.target !== null) {
+        const g = tr.targets[d.round.target];
+        link(g.lon, g.lat, "rgba(255,255,255,.9)", []);
+        c.strokeStyle = "#fff"; c.lineWidth = 2; c.beginPath(); c.arc(this.X(g.lon), this.Y(g.lat), 6 * u, 0, 6.2832); c.stroke();
+      }
+      if (d.round && d.round.action === "downlink" && d.gs !== null) link(tr.stations[d.gs].lon, tr.stations[d.gs].lat, "#ff6b9d", [5, 4]);
+      c.fillStyle = "rgba(255,255,255,.25)"; c.beginPath(); c.arc(SX, SY, 9 * u, 0, 6.2832); c.fill();
+      c.fillStyle = "#fff"; c.beginPath(); c.arc(SX, SY, 4 * u, 0, 6.2832); c.fill();
+      if (s.follow) { c.strokeStyle = "#4cc9f0"; c.lineWidth = 1.5; c.beginPath(); c.arc(SX, SY, 13 * u, 0, 6.2832); c.stroke(); }
+      c.fillStyle = "#fff"; c.fillText("SAT", SX + 15 * u, SY - 10 * u);
+    }
+    this.off = 0;
+  }
+}
+const renderers = { "2d": Map2D };   // "3d": da implementare con la stessa interfaccia
+let renderer = null;
+
+function setView(v) {
+  if (!renderers[v]) return;
+  S.view = v;
+  if (renderer) renderer.unmount();
+  renderer = new renderers[v]();
+  renderer.mount($("view"));
+  document.querySelectorAll("#viewSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  render();
+}
+
+function setFollow(on) {
+  S.follow = on; $("follow").checked = on;
+  if (renderer && renderer.onFollow) renderer.onFollow(on);
+  render();
+}
+
+// ---------- Dati derivati -----------------------------------------------------------
+const lerp = (a, b, u) => a + (b - a) * u;
+const wrap = x => x > 180 ? x - 360 : x < -180 ? x + 360 : x;
+
+function roundAt(rounds, t) {
+  let lo = 0, hi = rounds.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (rounds[m].t0 <= t) lo = m; else hi = m - 1; }
+  return rounds[lo];
+}
+
+// raggio angolare [rad] della zona con elevazione >= el, vista da quota alt [km]
+const footprintAngle = (R, alt, elDeg) => Math.acos(R * Math.cos(elDeg * D2R) / (R + alt)) - elDeg * D2R;
+
+function footprint(lat0, lon0, lam) {
+  const p0 = lat0 * D2R, l0 = lon0 * D2R, pts = [];
+  for (let k = 0; k < 90; k++) {
+    const b = k / 90 * 2 * Math.PI;
+    const p = Math.asin(Math.sin(p0) * Math.cos(lam) + Math.cos(p0) * Math.sin(lam) * Math.cos(b));
+    const l = l0 + Math.atan2(Math.sin(b) * Math.sin(lam) * Math.cos(p0), Math.cos(lam) - Math.sin(p0) * Math.sin(p));
+    pts.push([l / D2R, p / D2R]);
+  }
+  return pts;
+}
+
+function derive(tr, t) {
+  const T = tr.track, n = T.lat.length, f = Math.min(Math.max(t / tr.meta.track_dt, 0), n - 1);
+  const i = Math.min(Math.floor(f), n - 2), u = f - i;
+  const lat = lerp(T.lat[i], T.lat[i + 1], u), alt = lerp(T.alt_km[i], T.alt_km[i + 1], u);
+  const lon = wrap(T.lon[i] + wrap(T.lon[i + 1] - T.lon[i]) * u);
+  const lam = footprintAngle(tr.meta.earth_radius_km, alt, tr.meta.image_min_elev_deg);
+  const open = new Set(); let gs = null;
+  for (const w of tr.windows) if (w.t0 <= t && t <= w.t1) { if (w.kind === "target") open.add(w.obj); else gs = w.obj; }
+  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), open, gs, round: roundAt(tr.rounds, t) };
+}
+
+// ---------- UI ----------------------------------------------------------------------
+const fmtT = s => { s = Math.round(s); return `${String((s / 3600) | 0).padStart(2, "0")}:${String(((s % 3600) / 60) | 0).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
+const ACT = { image: "Image", downlink: "Downlink", charge: "Charge" };
+
+function render() {
+  const tr = S.trace; if (!tr || !renderer) return;
+  const d = derive(tr, S.t);
+  renderer.draw(S, d);
+  $("time").value = S.t;
+  $("clock").textContent = `${fmtT(S.t)} / ${fmtT(tr.meta.t_end)}`;
+  updateCard(d);
+}
+
+// Riquadro del satellite: visibile se il satellite è seguito e «Info satellite» è attivo.
+function updateCard(d) {
+  const card = $("satcard"), tr = S.trace, show = S.follow && S.info;
+  card.hidden = !show;
+  if (!show) return;
+  const r = d.round;
+  const tgt = r.action === "image" && r.target !== null ? tr.targets[r.target].name
+    : r.action === "downlink" && d.gs !== null ? tr.stations[d.gs].name : "";
+  $("pAct").textContent = ACT[r.action] || r.action;
+  $("pAct").className = "badge " + r.action;
+  $("pTgt").textContent = tgt ? "→ " + tgt : "";
+  $("pRnd").textContent = `Round ${fmtT(r.t0)} – ${fmtT(r.t1)}`;
+  $("pRew").textContent = r.reward.toFixed(3);
+  $("pCum").textContent = r.cum_reward.toFixed(3);
+  $("pImg").textContent = r.imaged;
+  $("pSto").textContent = `${r.storage.toFixed(1)} / 20`;
+  $("bSto").style.width = (r.storage / 20 * 100) + "%";
+  $("pBat").textContent = (r.battery * 100).toFixed(0) + " %";
+  $("bBat").style.width = (r.battery * 100) + "%";
+  // posizione: se l'utente l'ha trascinato, resta alla stessa distanza dal satellite;
+  // altrimenti a destra del campo visivo (a sinistra se manca spazio). Sempre dentro la mappa.
+  const a = renderer.satAnchor(), M = $("map"), w = card.offsetWidth, h = card.offsetHeight;
+  if (!a) return;
+  let x, y;
+  if (S.cardOff) { x = a.x + S.cardOff.x; y = a.y + S.cardOff.y; }
+  else {
+    x = a.x + a.r + 14;
+    if (x + w > M.clientWidth - 8) x = a.x - a.r - 14 - w;
+    y = a.y - h / 2;
+  }
+  card.style.left = Math.max(8, Math.min(M.clientWidth - w - 8, x)) + "px";
+  card.style.top = Math.max(8, Math.min(M.clientHeight - h - 8, y)) + "px";
+}
+
+// Trascinamento del riquadro dall'intestazione: salva lo scostamento dal satellite.
+(() => {
+  const head = $("cardHead"), card = $("satcard"); let drag = null;
+  head.addEventListener("pointerdown", e => {
+    if (e.target.closest("button")) return;
+    head.setPointerCapture(e.pointerId);
+    drag = { x: e.clientX, y: e.clientY, left: card.offsetLeft, top: card.offsetTop };
+    card.classList.add("dragging");
+  });
+  head.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const a = renderer.satAnchor(); if (!a) return;
+    const M = $("map"), left = Math.max(8, Math.min(M.clientWidth - card.offsetWidth - 8, drag.left + e.clientX - drag.x));
+    const top = Math.max(8, Math.min(M.clientHeight - card.offsetHeight - 8, drag.top + e.clientY - drag.y));
+    S.cardOff = { x: left - a.x, y: top - a.y };
+    render();
+  });
+  const end = () => { drag = null; card.classList.remove("dragging"); };
+  head.addEventListener("pointerup", end);
+  head.addEventListener("pointercancel", end);
+  head.addEventListener("dblclick", () => { S.cardOff = null; render(); });
+})();
+
+function loadTrace(tr) {
+  tr._imagedAt = new Array(tr.targets.length).fill(Infinity);
+  tr.imaged.forEach(e => { tr._imagedAt[e.target] = Math.min(tr._imagedAt[e.target], e.t); });
+  S.trace = tr; S.t = 0;
+  $("time").max = Math.floor(tr.meta.t_end);
+  const m = tr.meta, lam = footprintAngle(m.earth_radius_km, m.altitude_km, m.image_min_elev_deg);
+  const rows = [["Seed", m.seed], ["Round", m.round_s + " s"], ["Target", m.n_targets], ["Quota", m.altitude_km + " km"],
+    ["Inclinazione", m.inclination_deg + "°"], ["Elev. min. imaging", m.image_min_elev_deg + "°"],
+    ["Raggio campo visivo", (lam * m.earth_radius_km).toFixed(0) + " km"], ["Scarto traccia–sim", m.track_vs_sim_max_km + " km"]];
+  $("meta").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  $("note").textContent = m.note + " Politica: " + m.policy + ".";
+  render();
+}
+
+async function boot() {
+  const msg = $("msg");
+  try {
+    const [list, coast] = await Promise.all([
+      fetch("/traces/").then(r => r.json()), fetch("static/coast.json").then(r => r.json())]);
+    assets.coast = coast;
+    const img = new Image(); img.onload = () => { assets.earth = img; render(); }; img.src = "static/earth.jpg";
+    const names = list.filter(f => f.name.endsWith(".json")).map(f => f.name).sort();
+    if (!names.length) throw new Error("vuoto");
+    $("trace").innerHTML = names.map(n => `<option>${n}</option>`).join("");
+    const want = new URLSearchParams(location.search).get("trace");
+    if (want && names.includes(want)) $("trace").value = want;
+    await selectTrace();
+  } catch (e) {
+    msg.hidden = false;
+    msg.textContent = "Nessuna traccia trovata in outputs/traces. Genera: PYTHONPATH=scripts uv run python scripts/export_trace.py";
+  }
+  setView("2d");
+}
+async function selectTrace() { loadTrace(await fetch("/traces/" + $("trace").value).then(r => r.json())); }
+
+let last = 0;
+function tick(now) {
+  if (S.playing && S.trace) {
+    S.t += (now - last) / 1000 * S.speed;
+    if (S.t >= S.trace.meta.t_end) { S.t = S.trace.meta.t_end - 1e-3; setPlaying(false); }
+    render();
+  }
+  last = now; requestAnimationFrame(tick);
+}
+function setPlaying(p) { S.playing = p; $("play").textContent = p ? "❚❚" : "▶"; }
+
+$("play").onclick = () => { if (!S.playing && S.trace && S.t >= S.trace.meta.t_end - 1) S.t = 0; setPlaying(!S.playing); };
+$("time").oninput = e => { S.t = +e.target.value; render(); };
+$("speed").onchange = e => { S.speed = +e.target.value; };
+$("trace").onchange = selectTrace;
+$("follow").onchange = e => setFollow(e.target.checked);
+function setInfo(on) { S.info = on; $("info").checked = on; render(); }
+$("info").onchange = e => setInfo(e.target.checked);
+$("infoClose").onclick = () => setInfo(false);
+$("fov").onchange = e => { S.fov = e.target.checked; render(); };
+$("track").onchange = e => { S.track = e.target.checked; render(); };
+document.querySelectorAll("#viewSeg button:not(:disabled)").forEach(b => b.onclick = () => setView(b.dataset.v));
+document.querySelectorAll("#earthSeg button").forEach(b => b.onclick = () => {
+  S.earth = b.dataset.e;
+  document.querySelectorAll("#earthSeg button").forEach(x => x.classList.toggle("on", x === b));
+  render();
+});
+addEventListener("keydown", e => { if (e.code === "Space" && e.target.tagName !== "SELECT") { e.preventDefault(); $("play").click(); } });
+new ResizeObserver(() => { if (renderer) { renderer.resize(); render(); } }).observe($("stage"));
+requestAnimationFrame(tick);
+boot();
+</script>
+</body>
+</html>

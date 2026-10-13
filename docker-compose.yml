@@ -1,0 +1,14 @@
+# Viewer delle tracce BSK-RL: http://localhost:8080
+# Avvio: docker compose up -d      Stop: docker compose down
+# Nessuna build: immagine nginx ufficiale + file montati (le modifiche si vedono con un refresh).
+# Altri servizi (es. un'API che lancia le simulazioni) si possono aggiungere qui sotto.
+services:
+  viewer:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./viewer/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./viewer/web:/usr/share/nginx/html:ro
+      - ./outputs/traces:/data/traces:ro   # tracce prodotte da scripts/export_trace.py
+    restart: unless-stopped

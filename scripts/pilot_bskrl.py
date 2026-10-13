@@ -37,7 +37,12 @@ def make_sat(variable_interval: bool) -> sats.ImagingSatellite:
             ),
             obs.Time(),
         ]
-        action_spec = [act.Image(n_ahead_image=K_AHEAD), act.Downlink(duration=60.0)]
+        # indici: 0..K-1 Image, K Downlink, K+1 Charge
+        action_spec = [
+            act.Image(n_ahead_image=K_AHEAD),
+            act.Downlink(duration=60.0),
+            act.Charge(duration=60.0),
+        ]
         dyn_type = dyn.FullFeaturedDynModel
         fsw_type = fsw.ImagingFSWModel
 
