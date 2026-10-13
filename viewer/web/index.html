@@ -11,6 +11,7 @@
     --accent: #4cc9f0; --ok: #5ee08a; --pend: #ffb454; --gs: #ff6b9d;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
   header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
   h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 600; }
@@ -22,7 +23,6 @@
   .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
   .seg button:last-child { border-radius: 0 6px 6px 0; }
   .seg button.on { background: var(--accent); border-color: var(--accent); color: #05212b; font-weight: 600; }
-  .seg small { font-size: 10px; opacity: .8; }
   label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
   main { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; padding: 16px; }
   #stage { min-width: 0; }
@@ -35,11 +35,18 @@
   #bar { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
   #time { flex: 1; accent-color: var(--accent); }
   #clock { font-variant-numeric: tabular-nums; min-width: 8.5em; text-align: right; color: var(--muted); }
-  [hidden] { display: none !important; }
   aside { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; align-self: start; }
   h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
   h2:first-child { margin-top: 0; }
   h2 span { float: right; text-transform: none; letter-spacing: 0; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; }
+  dt { color: var(--muted); } dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin: 2px 0 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+  .legend div { margin: 2px 0; color: var(--muted); }
+  details { margin-top: 14px; color: var(--muted); font-size: 12px; }
+  #msg { color: var(--pend); padding: 16px; }
   /* riquadro del satellite: appare accanto al satellite quando è seguito */
   #satcard { position: absolute; z-index: 2; width: 230px; max-height: calc(100% - 16px); display: flex; flex-direction: column; font-size: 12px;
     background: rgba(18,26,46,.93); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(3px); }
@@ -56,14 +63,6 @@
   .badge { padding: 1px 8px; border-radius: 10px; font-weight: 600; color: #05212b; background: var(--accent); }
   .badge.downlink { background: var(--gs); } .badge.charge { background: var(--ok); }
   .sub { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
-  dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; }
-  dt { color: var(--muted); } dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-  .bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin: 2px 0 8px; }
-  .bar i { display: block; height: 100%; width: 0; background: var(--accent); }
-  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
-  .legend div { margin: 2px 0; color: var(--muted); }
-  details { margin-top: 14px; color: var(--muted); font-size: 12px; }
-  #msg { color: var(--pend); padding: 16px; }
   @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px; } }
 </style>
 </head>
@@ -73,15 +72,16 @@
   <select id="trace" aria-label="Traccia"></select>
   <div class="seg" id="viewSeg" aria-label="Vista">
     <button data-v="2d" class="on">2D</button>
-    <button data-v="3d" disabled title="Vista 3D: in sviluppo (WIP)">3D <small>WIP</small></button>
+    <button data-v="3d">3D</button>
   </div>
   <div class="seg" id="earthSeg" aria-label="Terra">
     <button data-e="image" class="on">Immagine</button>
     <button data-e="outline">Contorni</button>
   </div>
+  <label id="satLbl" hidden>Satellite <select id="satSel" aria-label="Satellite"></select></label>
   <label><input type="checkbox" id="fov" checked> Campo visivo</label>
   <label><input type="checkbox" id="track" checked> Traccia</label>
-  <label title="Centra la mappa sul satellite (anche con un clic sul satellite)"><input type="checkbox" id="follow"> Segui satellite</label>
+  <label title="Centra la vista sul satellite selezionato (anche con un clic sul satellite)"><input type="checkbox" id="follow"> Segui satellite</label>
   <label title="Mostra il riquadro con i dati del satellite seguito"><input type="checkbox" id="info" checked> Info satellite</label>
 </header>
 <div id="msg" hidden></div>
@@ -90,7 +90,7 @@
     <div id="map">
       <div id="view"></div>
       <div id="satcard" hidden>
-        <div class="head" id="cardHead" title="Trascina per spostare · doppio clic per riposizionare accanto al satellite"><span>SAT</span><button id="infoClose" title="Nascondi (si riapre da «Info satellite»)" aria-label="Nascondi info">×</button></div>
+        <div class="head" id="cardHead" title="Trascina per spostare · doppio clic per riposizionare accanto al satellite"><span><span class="dot" id="cardDot"></span><span id="cardName">SAT</span></span><button id="infoClose" title="Nascondi (si riapre da «Info satellite»)" aria-label="Nascondi info">×</button></div>
         <div class="body">
           <div class="act"><span id="pAct" class="badge">–</span><span id="pTgt" class="sub" style="margin:0"></span></div>
           <div class="sub" id="pRnd"></div>
@@ -116,11 +116,12 @@
       </select>
       <span id="coord"></span><span id="clock"></span>
     </div>
-    <p class="hint">Rotella: zoom · Trascina: sposta · Doppio clic: vista intera · Clic sul satellite: segui</p>
+    <p class="hint">Rotella: zoom · Trascina: sposta/ruota · Doppio clic: vista iniziale · Clic su un satellite: selezionalo e segui</p>
   </div>
   <aside>
     <h2>Legenda</h2>
     <div class="legend">
+      <div id="legSats"></div>
       <div><span class="dot" style="background:var(--pend)"></span>target in attesa (più opaco = priorità alta)</div>
       <div><span class="dot" style="background:var(--ok)"></span>target ripreso</div>
       <div><span class="dot" style="border:1.5px solid var(--accent)"></span>finestra di accesso aperta</div>
@@ -135,26 +136,92 @@
 "use strict";
 const D2R = Math.PI / 180;
 const $ = id => document.getElementById(id);
-const S = { trace: null, t: 0, playing: false, speed: 300, view: "2d", earth: "image", fov: true, track: true, follow: false, info: true, cardOff: null };
+const S = { trace: null, t: 0, playing: false, speed: 300, view: "2d", earth: "image", fov: true, track: true,
+            follow: false, info: true, cardOff: null, sel: 0 };
 const assets = { earth: null, coast: null };
+const PALETTE = ["#ffffff", "#ff7ac6", "#b8f35a", "#ffd166", "#c77dff", "#7fffd4"];
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const wrap = x => x > 180 ? x - 360 : x < -180 ? x + 360 : x;
+const lerp = (a, b, u) => a + (b - a) * u;
 
-// ---------- Interfaccia dei renderer ------------------------------------------------
-// Ogni vista implementa: mount(el), unmount(), resize(), draw(S, d), satAnchor()
-//   S = stato UI, d = grandezze derivate dall'istante S.t (vedi derive()).
-//   satAnchor() -> {x, y, r} posizione del satellite e raggio del suo campo visivo in px
-//   (coordinate di #map): serve a posizionare il riquadro info, che è comune a tutte le viste.
-// La vista 3D (WIP) andrà aggiunta a `renderers` con la stessa interfaccia e abilitando
-// il pulsante data-v="3d": crea un proprio <canvas> in mount() (WebGL e 2D non si mescolano).
-// Vista 2D (equirettangolare) con telecamera: zoom, trascinamento, mondo ripetuto
-// all'infinito in longitudine, inseguimento del satellite. Stato camera: centro (cx, cy)
-// in gradi (cx non limitato) e zoom z rispetto alla vista intera (px/grado = z * W/360).
-const ZMIN = 0.5, ZMAX = 30;
-class Map2D {
-  constructor() { this.cam = { cx: 0, cy: 0, z: 1 }; this.off = 0; this.sat = null; }
-  get sc() { return this.cam.z * this.W / 360; }
-  X(lon) { return this.W / 2 + (lon + this.off - this.cam.cx) * this.sc; }
-  Y(lat) { return this.H / 2 - (lat - this.cam.cy) * this.sc; }
+// ---------- Livello dati, comune alle viste -----------------------------------------
+// P(lon, lat, rho) -> [x, y] in px oppure null se il punto non è visibile (lato nascosto del
+// globo). rho > 1 = punto sopra la superficie (il satellite, solo in 3D). o = {W, H, u, wrap, alt}.
+function path(c, lons, lats, to, P, wrapBreak) {   // polilinea interrotta dove il punto non è visibile
+  let prev = null, pen = false;
+  c.beginPath();
+  for (let i = 0; i <= to; i++) {
+    const p = P(lons[i], lats[i]);
+    if (!p) pen = false;
+    else {
+      if (wrapBreak && prev !== null && Math.abs(lons[i] - prev) > 180) pen = false;   // antimeridiano (2D)
+      if (pen) c.lineTo(p[0], p[1]); else c.moveTo(p[0], p[1]);
+      pen = true;
+    }
+    prev = lons[i];
+  }
+  c.stroke();
+}
 
+function drawLayers(c, s, d, P, o) {
+  const { W, H, u } = o, tr = s.trace, ER = tr.meta.earth_radius_km;
+  const inside = p => p && p[0] > -60 && p[0] < W + 60 && p[1] > -60 && p[1] < H + 60;
+  c.font = `${Math.max(10, 11 * u)}px system-ui, sans-serif`; c.textBaseline = "middle";
+
+  if (s.track) tr.satellites.forEach((sat, k) => {
+    const T = sat.track, sel = k === s.sel;
+    c.lineWidth = 1; c.strokeStyle = rgba(sat.color, .22); path(c, T.lon, T.lat, T.lon.length - 1, P, o.wrap);
+    c.lineWidth = sel ? 1.8 : 1.2; c.strokeStyle = rgba(sat.color, sel ? .85 : .6); path(c, T.lon, T.lat, d.sats[k].i, P, o.wrap);
+  });
+  tr.stations.forEach(g => {
+    const p = P(g.lon, g.lat); if (!inside(p)) return;
+    const r = 4 * u;
+    c.fillStyle = "#ff6b9d"; c.beginPath(); c.moveTo(p[0], p[1] - r); c.lineTo(p[0] + r, p[1] + r); c.lineTo(p[0] - r, p[1] + r); c.closePath(); c.fill();
+    c.fillStyle = "rgba(255,200,220,.9)"; c.fillText(g.name, p[0] + r + 3, p[1]);
+  });
+  const open = d.sats[s.sel].open;           // finestre aperte: del satellite selezionato
+  tr.targets.forEach((g, i) => {
+    const p = P(g.lon, g.lat); if (!inside(p)) return;
+    const r = (1.4 + 1.8 * g.priority) * u;
+    c.beginPath(); c.arc(p[0], p[1], r, 0, 6.2832);
+    c.fillStyle = tr._imagedAt[i] <= s.t ? "#5ee08a" : `rgba(255,180,84,${.3 + .7 * g.priority})`; c.fill();
+    if (open.has(i)) { c.strokeStyle = "#4cc9f0"; c.lineWidth = 1.2; c.beginPath(); c.arc(p[0], p[1], r + 2.5 * u, 0, 6.2832); c.stroke(); }
+  });
+  if (s.fov) d.sats.forEach((ds, k) => {
+    const col = tr.satellites[k].color, pts = ds.fp.map(q => P(q[0], q[1]));
+    c.fillStyle = rgba(col, .16); c.strokeStyle = rgba(col, .9); c.lineWidth = 1.2; c.beginPath();
+    if (pts.every(Boolean)) {
+      pts.forEach((p, j) => j ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); c.fill();
+    } else { let pen = false; pts.forEach(p => { if (!p) { pen = false; return; } pen ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); pen = true; }); }
+    c.stroke();
+  });
+  d.sats.forEach((ds, k) => {
+    const sat = tr.satellites[k], col = sat.color, r = ds.round;
+    const ps = P(ds.lon, ds.lat, o.alt ? 1 + ds.alt / ER : 1);
+    const link = (lon, lat, colr, dash) => {
+      const q = P(lon, lat); if (!ps || !q || (o.wrap && Math.abs(lon - ds.lon) > 180)) return;
+      c.strokeStyle = colr; c.lineWidth = 1.4; c.setLineDash(dash); c.beginPath(); c.moveTo(ps[0], ps[1]); c.lineTo(q[0], q[1]); c.stroke(); c.setLineDash([]);
+    };
+    if (r.action === "image" && r.target !== null) {
+      const g = tr.targets[r.target], q = P(g.lon, g.lat);
+      link(g.lon, g.lat, rgba(col, .9), []);
+      if (q) { c.strokeStyle = k === s.sel ? "#fff" : col; c.lineWidth = 2; c.beginPath(); c.arc(q[0], q[1], 6 * u, 0, 6.2832); c.stroke(); }
+    }
+    if (r.action === "downlink" && ds.gs !== null) link(tr.stations[ds.gs].lon, tr.stations[ds.gs].lat, "#ff6b9d", [5, 4]);
+    if (!ps) return;
+    c.fillStyle = rgba(col, .25); c.beginPath(); c.arc(ps[0], ps[1], 9 * u, 0, 6.2832); c.fill();
+    c.fillStyle = col; c.beginPath(); c.arc(ps[0], ps[1], 4 * u, 0, 6.2832); c.fill();
+    if (s.follow && k === s.sel) { c.strokeStyle = col; c.lineWidth = 1.5; c.beginPath(); c.arc(ps[0], ps[1], 13 * u, 0, 6.2832); c.stroke(); }
+    c.fillStyle = "#fff"; c.fillText(sat.name, ps[0] + 15 * u, ps[1] - 10 * u);
+  });
+}
+
+// ---------- Interfaccia delle viste -------------------------------------------------
+// Una vista (BaseView) implementa: resize(), draw(S, d), satAnchor(), center()/setCenter(lon, lat),
+// onFollow(on) e i metodi di camera usati da bind(): snap(), panTo(), zoomAt(), coordAt(),
+// hitSat(), reset(). satAnchor() -> {x, y, r}: posizione del satellite selezionato e raggio del
+// suo campo visivo in px (coordinate di #map): serve a posizionare il riquadro info (comune).
+class BaseView {
   mount(el) {
     this.cv = document.createElement("canvas");
     this.ctx = this.cv.getContext("2d");
@@ -162,7 +229,7 @@ class Map2D {
     this.ui.className = "zoom";
     [["+", "Zoom +", () => this.zoomAt(1.5, this.W / 2, this.H / 2)],
      ["−", "Zoom −", () => this.zoomAt(1 / 1.5, this.W / 2, this.H / 2)],
-     ["⌂", "Vista intera", () => this.reset()]].forEach(([t, title, fn]) => {
+     ["⌂", "Vista iniziale", () => this.reset()]].forEach(([t, title, fn]) => {
       const b = document.createElement("button"); b.textContent = t; b.title = title; b.onclick = fn; this.ui.append(b);
     });
     el.replaceChildren(this.cv, this.ui);
@@ -170,35 +237,15 @@ class Map2D {
     this.resize();
   }
   unmount() { this.cv.remove(); this.ui.remove(); }
-  resize() {
+  setSize(h) {
     const dpr = window.devicePixelRatio || 1;
     this.W = this.cv.parentElement.clientWidth || 800;
-    this.H = this.W / 2;
+    this.H = Math.round(h(this.W));
     this.cv.width = Math.round(this.W * dpr);
     this.cv.height = Math.round(this.H * dpr);
     this.cv.style.height = this.H + "px";
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.clamp();
   }
-  clamp() {            // in verticale la mappa non esce dai poli; in orizzontale è libera
-    const half = this.H / this.sc / 2;
-    this.cam.cy = half >= 90 ? 0 : Math.max(-90 + half, Math.min(90 - half, this.cam.cy));
-  }
-  reset() { setFollow(false); this.cam = { cx: 0, cy: 0, z: 1 }; render(); }
-  onFollow(on) { if (on && this.cam.z < 4) this.cam.z = 4; }
-
-  zoomAt(f, mx, my) {
-    const c = this.cam, z1 = Math.max(ZMIN, Math.min(ZMAX, c.z * f));
-    if (z1 === c.z) return;
-    if (S.follow) { c.z = z1; }          // con l'inseguimento il centro resta sul satellite
-    else {
-      const s0 = this.sc, lon = c.cx + (mx - this.W / 2) / s0, lat = c.cy - (my - this.H / 2) / s0;
-      c.z = z1;
-      const s1 = this.sc; c.cx = lon - (mx - this.W / 2) / s1; c.cy = lat + (my - this.H / 2) / s1;
-    }
-    this.clamp(); render();
-  }
-
   bind() {
     const cv = this.cv; let drag = null;
     const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
@@ -206,73 +253,94 @@ class Map2D {
     cv.addEventListener("wheel", e => { e.preventDefault(); const [mx, my] = pos(e); this.zoomAt(Math.exp(-e.deltaY * 0.0015), mx, my); }, { passive: false });
     cv.addEventListener("pointerdown", e => {
       cv.setPointerCapture(e.pointerId);
-      drag = { x: e.clientX, y: e.clientY, cx: this.cam.cx, cy: this.cam.cy, moved: false };
+      drag = { x: e.clientX, y: e.clientY, snap: this.snap(), moved: false };
     });
     cv.addEventListener("pointermove", e => {
-      const [mx, my] = pos(e), s = this.sc;
+      const [mx, my] = pos(e);
       if (drag) {
-        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-        if (!drag.moved && Math.hypot(dx, dy) > 3) {
+        if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 3) {
           drag.moved = true; cv.style.cursor = "grabbing";
-          if (S.follow) { setFollow(false); Object.assign(drag, { x: e.clientX, y: e.clientY, cx: this.cam.cx, cy: this.cam.cy }); return; }
+          if (S.follow) { setFollow(false); Object.assign(drag, { x: e.clientX, y: e.clientY, snap: this.snap() }); return; }
         }
-        if (drag.moved) { this.cam.cx = drag.cx - dx / s; this.cam.cy = drag.cy + dy / s; this.clamp(); render(); }
-      } else cv.style.cursor = this.hitSat(mx, my) ? "pointer" : "grab";
-      const lon = ((this.cam.cx + (mx - this.W / 2) / s + 180) % 360 + 360) % 360 - 180, lat = this.cam.cy - (my - this.H / 2) / s;
-      if (Math.abs(lat) <= 90) $("coord").textContent = `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
+        if (drag.moved) { this.panTo(drag.snap, e.clientX - drag.x, e.clientY - drag.y); render(); }
+      } else cv.style.cursor = this.hitSat(mx, my) >= 0 ? "pointer" : "grab";
+      const q = this.coordAt(mx, my);
+      $("coord").textContent = q ? `${q.lat.toFixed(2)}°, ${q.lon.toFixed(2)}°` : "";
     });
     cv.addEventListener("pointerup", e => {
       cv.style.cursor = "grab";
-      const [mx, my] = pos(e);
-      if (drag && !drag.moved && this.hitSat(mx, my)) setFollow(!S.follow);
+      if (drag && !drag.moved) { const [mx, my] = pos(e), k = this.hitSat(mx, my); if (k >= 0) selectSat(k); }
       drag = null;
     });
     cv.addEventListener("pointerleave", () => { $("coord").textContent = ""; });
     cv.addEventListener("dblclick", () => this.reset());
   }
-  satAnchor() {                      // posizione del satellite in px (coordinate di #map) e raggio del campo visivo
-    if (!this.sat) return null;
-    const lon = this.sat.lon + 360 * Math.round((this.cam.cx - this.sat.lon) / 360), sc = this.sc;
-    return { x: this.W / 2 + (lon - this.cam.cx) * sc, y: this.H / 2 - (this.sat.lat - this.cam.cy) * sc,
-             r: Math.max(14, this.sat.lam / D2R * sc) };
-  }
-  hitSat(mx, my) {                   // clic vicino al marker del satellite (copia di mondo più vicina)
-    if (!this.sat) return false;
-    const lon = this.sat.lon + 360 * Math.round((this.cam.cx - this.sat.lon) / 360);
-    const sx = this.W / 2 + (lon - this.cam.cx) * this.sc, sy = this.H / 2 - (this.sat.lat - this.cam.cy) * this.sc;
-    return Math.hypot(mx - sx, my - sy) < 14;
-  }
+}
 
-  line(lons, lats, to) {             // polilinea che si interrompe sull'antimeridiano
-    const c = this.ctx; let prev = null;
-    c.beginPath();
-    for (let i = 0; i <= to; i++) {
-      const wrap = prev !== null && Math.abs(lons[i] - prev) > 180;
-      if (prev === null || wrap) c.moveTo(this.X(lons[i]), this.Y(lats[i])); else c.lineTo(this.X(lons[i]), this.Y(lats[i]));
-      prev = lons[i];
+// ---- Vista 2D (equirettangolare): zoom, trascinamento, mondo ripetuto in longitudine.
+// Camera: centro (cx, cy) in gradi (cx non limitato) e zoom z rispetto alla vista intera.
+const ZMIN = 0.5, ZMAX = 30;
+class Map2D extends BaseView {
+  constructor() { super(); this.cam = { cx: 0, cy: 0, z: 1 }; this.off = 0; this.sats = []; }
+  get sc() { return this.cam.z * this.W / 360; }
+  X(lon) { return this.W / 2 + (lon + this.off - this.cam.cx) * this.sc; }
+  Y(lat) { return this.H / 2 - (lat - this.cam.cy) * this.sc; }
+  resize() { this.setSize(w => w / 2); this.clamp(); }
+  clamp() {            // in verticale la mappa non esce dai poli; in orizzontale è libera
+    const half = this.H / this.sc / 2;
+    this.cam.cy = half >= 90 ? 0 : Math.max(-90 + half, Math.min(90 - half, this.cam.cy));
+  }
+  center() { return { lon: wrap(this.cam.cx), lat: this.cam.cy }; }
+  setCenter(lon, lat) { this.cam.cx = lon; this.cam.cy = lat; if (this.H) this.clamp(); }   // prima del mount H non c'è
+  reset() { setFollow(false); this.cam = { cx: 0, cy: 0, z: 1 }; render(); }
+  onFollow(on) { if (on && this.cam.z < 4) this.cam.z = 4; }
+  snap() { return { cx: this.cam.cx, cy: this.cam.cy }; }
+  panTo(s0, dx, dy) { this.cam.cx = s0.cx - dx / this.sc; this.cam.cy = s0.cy + dy / this.sc; this.clamp(); }
+  zoomAt(f, mx, my) {
+    const c = this.cam, z1 = Math.max(ZMIN, Math.min(ZMAX, c.z * f));
+    if (z1 === c.z) return;
+    if (S.follow) c.z = z1;                // con l'inseguimento il centro resta sul satellite
+    else {
+      const s0 = this.sc, lon = c.cx + (mx - this.W / 2) / s0, lat = c.cy - (my - this.H / 2) / s0;
+      c.z = z1;
+      const s1 = this.sc; c.cx = lon - (mx - this.W / 2) / s1; c.cy = lat + (my - this.H / 2) / s1;
     }
-    c.stroke();
+    this.clamp(); render();
   }
-
+  coordAt(mx, my) {
+    const s = this.sc, lat = this.cam.cy - (my - this.H / 2) / s;
+    if (Math.abs(lat) > 90) return null;
+    return { lat, lon: ((this.cam.cx + (mx - this.W / 2) / s + 180) % 360 + 360) % 360 - 180 };
+  }
+  anchor(ds) {                         // posizione in px della copia di mondo più vicina al centro
+    const lon = ds.lon + 360 * Math.round((this.cam.cx - ds.lon) / 360), sc = this.sc;
+    return { x: this.W / 2 + (lon - this.cam.cx) * sc, y: this.H / 2 - (ds.lat - this.cam.cy) * sc };
+  }
+  hitSat(mx, my) {
+    for (let k = 0; k < this.sats.length; k++) { const a = this.anchor(this.sats[k]); if (Math.hypot(mx - a.x, my - a.y) < 14) return k; }
+    return -1;
+  }
+  satAnchor() {
+    const ds = this.sats[S.sel]; if (!ds) return null;
+    return { ...this.anchor(ds), r: Math.max(14, ds.lam / D2R * this.sc) };
+  }
   draw(s, d) {
-    const { ctx: c, W, H } = this, tr = s.trace, u = Math.max(W / 1000, .8);
+    const { ctx: c, W, H } = this, u = Math.max(W / 1000, .8), sel = d.sats[s.sel];
     if (s.follow) {                  // il centro segue il satellite senza saltare tra copie del mondo
-      this.cam.cx = d.lon + 360 * Math.round((this.cam.cx - d.lon) / 360);
-      this.cam.cy = d.lat; this.clamp();
+      this.cam.cx = sel.lon + 360 * Math.round((this.cam.cx - sel.lon) / 360);
+      this.cam.cy = sel.lat; this.clamp();
     }
-    this.sat = d;
+    this.sats = d.sats;
     const sc = this.sc, left = this.cam.cx - W / 2 / sc, right = this.cam.cx + W / 2 / sc;
-    const k0 = Math.floor((left + 180) / 360), k1 = Math.floor((right + 180) / 360);
-    const copies = []; for (let k = k0; k <= k1; k++) copies.push(360 * k);
-
-    // --- livello base: sfondo, immagine/contorni, graticola
+    const copies = []; for (let k = Math.floor((left + 180) / 360); k <= Math.floor((right + 180) / 360); k++) copies.push(360 * k);
     c.fillStyle = "#050b18"; c.fillRect(0, 0, W, H);
     c.imageSmoothingQuality = "high";
     for (this.off of copies) {
       if (s.earth === "image" && assets.earth) c.drawImage(assets.earth, this.X(-180), this.Y(90), 360 * sc, 180 * sc);
       if (s.earth === "outline" && assets.coast) {
         c.strokeStyle = "rgba(190,205,235,.75)"; c.lineWidth = 1;
-        for (const l of assets.coast) { c.beginPath(); l.forEach((p, i) => i ? c.lineTo(this.X(p[0]), this.Y(p[1])) : c.moveTo(this.X(p[0]), this.Y(p[1]))); c.stroke(); }
+        const P = (lo, la) => [this.X(lo), this.Y(la)];
+        for (const l of assets.coast) path(c, l.lon, l.lat, l.lon.length - 1, P, false);
       }
     }
     this.off = 0;
@@ -281,61 +349,123 @@ class Map2D {
     for (let lo = Math.ceil(left / step) * step; lo <= right; lo += step) { c.moveTo(this.X(lo), 0); c.lineTo(this.X(lo), H); }
     for (let la = -90; la <= 90; la += step) { c.moveTo(0, this.Y(la)); c.lineTo(W, this.Y(la)); }
     c.stroke();
-
-    // --- livello dati, ripetuto per ogni copia visibile del mondo
-    c.font = `${Math.max(10, 11 * u)}px system-ui, sans-serif`; c.textBaseline = "middle";
-    for (this.off of copies) {
-      if (s.track) {
-        const T = tr.track;
-        c.lineWidth = 1; c.strokeStyle = "rgba(255,255,255,.22)"; this.line(T.lon, T.lat, T.lon.length - 1);
-        c.lineWidth = 1.6; c.strokeStyle = "rgba(255,255,255,.8)"; this.line(T.lon, T.lat, d.i);
-      }
-      tr.stations.forEach(g => {
-        const X = this.X(g.lon), Y = this.Y(g.lat), r = 4 * u;
-        if (X < -60 || X > W + 60) return;
-        c.fillStyle = "#ff6b9d"; c.beginPath(); c.moveTo(X, Y - r); c.lineTo(X + r, Y + r); c.lineTo(X - r, Y + r); c.closePath(); c.fill();
-        c.fillStyle = "rgba(255,200,220,.9)"; c.fillText(g.name, X + r + 3, Y);
-      });
-      tr.targets.forEach((g, i) => {
-        const X = this.X(g.lon), Y = this.Y(g.lat), r = (1.4 + 1.8 * g.priority) * u;
-        if (X < -10 || X > W + 10 || Y < -10 || Y > H + 10) return;
-        c.beginPath(); c.arc(X, Y, r, 0, 6.2832);
-        c.fillStyle = tr._imagedAt[i] <= s.t ? "#5ee08a" : `rgba(255,180,84,${.3 + .7 * g.priority})`; c.fill();
-        if (d.open.has(i)) { c.strokeStyle = "#4cc9f0"; c.lineWidth = 1.2; c.beginPath(); c.arc(X, Y, r + 2.5 * u, 0, 6.2832); c.stroke(); }
-      });
-      if (s.fov) {
-        c.fillStyle = "rgba(76,201,240,.16)"; c.strokeStyle = "rgba(76,201,240,.9)"; c.lineWidth = 1.2; c.beginPath();
-        d.fp.forEach((p, k) => k ? c.lineTo(this.X(p[0]), this.Y(p[1])) : c.moveTo(this.X(p[0]), this.Y(p[1])));
-        c.closePath(); c.fill(); c.stroke();
-      }
-      const SX = this.X(d.lon), SY = this.Y(d.lat);
-      const link = (lon, lat, col, dash) => {
-        if (Math.abs(lon - d.lon) > 180) return;
-        c.strokeStyle = col; c.lineWidth = 1.4; c.setLineDash(dash); c.beginPath(); c.moveTo(SX, SY); c.lineTo(this.X(lon), this.Y(lat)); c.stroke(); c.setLineDash([]);
-      };
-      if (d.round && d.round.action === "image" && d.round.target !== null) {
-        const g = tr.targets[d.round.target];
-        link(g.lon, g.lat, "rgba(255,255,255,.9)", []);
-        c.strokeStyle = "#fff"; c.lineWidth = 2; c.beginPath(); c.arc(this.X(g.lon), this.Y(g.lat), 6 * u, 0, 6.2832); c.stroke();
-      }
-      if (d.round && d.round.action === "downlink" && d.gs !== null) link(tr.stations[d.gs].lon, tr.stations[d.gs].lat, "#ff6b9d", [5, 4]);
-      c.fillStyle = "rgba(255,255,255,.25)"; c.beginPath(); c.arc(SX, SY, 9 * u, 0, 6.2832); c.fill();
-      c.fillStyle = "#fff"; c.beginPath(); c.arc(SX, SY, 4 * u, 0, 6.2832); c.fill();
-      if (s.follow) { c.strokeStyle = "#4cc9f0"; c.lineWidth = 1.5; c.beginPath(); c.arc(SX, SY, 13 * u, 0, 6.2832); c.stroke(); }
-      c.fillStyle = "#fff"; c.fillText("SAT", SX + 15 * u, SY - 10 * u);
-    }
+    for (this.off of copies) drawLayers(c, s, d, (lo, la) => [this.X(lo), this.Y(la)], { W, H, u, wrap: true, alt: false });
     this.off = 0;
   }
 }
-const renderers = { "2d": Map2D };   // "3d": da implementare con la stessa interfaccia
+
+// ---- Vista 3D: globo in proiezione ortografica, senza librerie. La Terra è texturizzata
+// pixel per pixel (proiezione inversa) su un canvas a risoluzione ridotta; i dati usano
+// drawLayers con una P che scarta i punti sul lato nascosto.
+const GRAT = (() => {                      // graticola ogni 30°, campionata ogni 3°
+  const g = [], n = Array.from({ length: 121 }, (_, i) => -180 + i * 3), m = Array.from({ length: 61 }, (_, i) => -90 + i * 3);
+  for (let la = -60; la <= 60; la += 30) g.push({ lon: n, lat: n.map(() => la) });
+  for (let lo = -180; lo < 180; lo += 30) g.push({ lon: m.map(() => lo), lat: m });
+  return g;
+})();
+
+class Globe3D extends BaseView {
+  constructor() { super(); this.cam = { lon: 0, lat: 20, z: 1 }; this.sats = []; this.off = document.createElement("canvas"); }
+  get R() { return this.cam.z * this.R0; }
+  resize() { this.setSize(w => w * 0.62); this.R0 = 0.42 * Math.min(this.W, this.H); this.key = null; }
+  upd() { const f = this.cam.lat * D2R; this.s0 = Math.sin(f); this.c0 = Math.cos(f); }
+  center() { return { lon: this.cam.lon, lat: this.cam.lat }; }
+  setCenter(lon, lat) { this.cam.lon = wrap(lon); this.cam.lat = Math.max(-89, Math.min(89, lat)); }
+  reset() { setFollow(false); this.cam = { lon: 0, lat: 20, z: 1 }; render(); }
+  onFollow(on) { if (on && this.cam.z < 2.2) this.cam.z = 2.2; }
+  snap() { return { lon: this.cam.lon, lat: this.cam.lat }; }
+  panTo(s0, dx, dy) { this.setCenter(s0.lon - dx / this.R / D2R, s0.lat + dy / this.R / D2R); }
+  zoomAt(f) { this.cam.z = Math.max(.5, Math.min(10, this.cam.z * f)); render(); }
+  P(lon, lat, rho = 1) {
+    const f = lat * D2R, dl = (lon - this.cam.lon) * D2R, cf = Math.cos(f), sf = Math.sin(f), cd = Math.cos(dl);
+    const cosc = this.s0 * sf + this.c0 * cf * cd;
+    if (cosc < 0 && rho * Math.sqrt(1 - cosc * cosc) < 1) return null;      // dietro il globo
+    const R = this.R * rho;
+    return [this.W / 2 + R * cf * Math.sin(dl), this.H / 2 - R * (this.c0 * sf - this.s0 * cf * cd)];
+  }
+  coordAt(mx, my) {
+    this.upd();
+    const x = (mx - this.W / 2) / this.R, y = (this.H / 2 - my) / this.R, r2 = x * x + y * y;
+    if (r2 > 1) return null;
+    const cc = Math.sqrt(1 - r2);
+    return { lat: Math.asin(cc * this.s0 + y * this.c0) / D2R, lon: wrap(this.cam.lon + Math.atan2(x, this.c0 * cc - y * this.s0) / D2R) };
+  }
+  anchor(ds) { this.upd(); return this.P(ds.lon, ds.lat, 1 + ds.alt / S.trace.meta.earth_radius_km); }
+  hitSat(mx, my) {
+    for (let k = 0; k < this.sats.length; k++) { const a = this.anchor(this.sats[k]); if (a && Math.hypot(mx - a[0], my - a[1]) < 14) return k; }
+    return -1;
+  }
+  satAnchor() {
+    const ds = this.sats[S.sel], a = ds && this.anchor(ds); if (!a) return null;
+    return { x: a[0], y: a[1], r: Math.max(14, ds.lam * this.R) };
+  }
+  texture() {                          // texture 2048x1024 come Uint32 (RGBA little-endian)
+    if (this.tex || !assets.earth) return this.tex;
+    const cv = document.createElement("canvas"); cv.width = 2048; cv.height = 1024;
+    const g = cv.getContext("2d"); g.drawImage(assets.earth, 0, 0, 2048, 1024);
+    return (this.tex = new Uint32Array(g.getImageData(0, 0, 2048, 1024).data.buffer));
+  }
+  renderEarth() {                      // proiezione inversa pixel per pixel, risoluzione ridotta
+    const { W, H, R } = this, tex = this.texture(); if (!tex) return false;
+    const key = [this.cam.lon, this.cam.lat, this.cam.z, W, H].join();
+    if (key === this.key) return true;
+    this.key = key;
+    const st = Math.max(1, Math.ceil(Math.sqrt(W * H / 150000))), w = Math.ceil(W / st), h = Math.ceil(H / st);
+    this.off.width = w; this.off.height = h;
+    const g = this.off.getContext("2d"), img = g.createImageData(w, h), px = new Uint32Array(img.data.buffer);
+    const { s0, c0 } = this, l0 = this.cam.lon * D2R, cx = W / 2, cy = H / 2, TAU = 2 * Math.PI;
+    for (let j = 0, k = 0; j < h; j++) {
+      const y = (cy - (j + .5) * st) / R;
+      for (let i = 0; i < w; i++, k++) {
+        const x = ((i + .5) * st - cx) / R, r2 = x * x + y * y;
+        if (r2 > 1) continue;                                   // fuori dal disco: trasparente
+        const cc = Math.sqrt(1 - r2);
+        const lat = Math.asin(cc * s0 + y * c0), lon = l0 + Math.atan2(x, c0 * cc - y * s0);
+        let tx = (lon / TAU + .5) % 1; if (tx < 0) tx += 1;
+        const p = tex[Math.min(1023, ((.5 - lat / Math.PI) * 1024) | 0) * 2048 + ((tx * 2048) | 0)];
+        const f = .55 + .45 * cc;                               // ombreggiatura verso il bordo
+        px[k] = 0xFF000000 | (((p >> 16 & 255) * f) << 16) | (((p >> 8 & 255) * f) << 8) | ((p & 255) * f);
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return true;
+  }
+  draw(s, d) {
+    const { ctx: c, W, H } = this, u = Math.max(W / 1000, .8), sel = d.sats[s.sel];
+    if (s.follow) this.setCenter(sel.lon, sel.lat);
+    this.upd(); this.sats = d.sats;
+    const R = this.R, cx = W / 2, cy = H / 2, P = (lo, la, rho) => this.P(lo, la, rho);
+    c.fillStyle = "#050b18"; c.fillRect(0, 0, W, H);
+    const glow = c.createRadialGradient(cx, cy, R * .98, cx, cy, R * 1.12);       // alone atmosferico
+    glow.addColorStop(0, "rgba(76,201,240,.45)"); glow.addColorStop(1, "rgba(76,201,240,0)");
+    c.fillStyle = glow; c.beginPath(); c.arc(cx, cy, R * 1.12, 0, 6.2832); c.fill();
+    if (s.earth === "image" && this.renderEarth()) { c.imageSmoothingEnabled = true; c.drawImage(this.off, 0, 0, W, H); }
+    else {
+      const sh = c.createRadialGradient(cx - R * .3, cy - R * .3, R * .1, cx, cy, R);
+      sh.addColorStop(0, "#14233f"); sh.addColorStop(1, "#070d1c");
+      c.fillStyle = sh; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.fill();
+      if (s.earth === "outline" && assets.coast) {
+        c.strokeStyle = "rgba(205,220,250,.95)"; c.lineWidth = 1.3;
+        for (const l of assets.coast) path(c, l.lon, l.lat, l.lon.length - 1, P, false);
+      }
+    }
+    c.strokeStyle = "rgba(255,255,255,.09)"; c.lineWidth = 1;
+    for (const gl of GRAT) path(c, gl.lon, gl.lat, gl.lon.length - 1, P, false);
+    c.strokeStyle = "rgba(255,255,255,.25)"; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.stroke();
+    drawLayers(c, s, d, P, { W, H, u, wrap: false, alt: true });
+  }
+}
+const views = { "2d": Map2D, "3d": Globe3D };
 let renderer = null;
 
 function setView(v) {
-  if (!renderers[v]) return;
-  S.view = v;
+  if (!views[v]) return;
+  const prev = renderer && renderer.center();
   if (renderer) renderer.unmount();
-  renderer = new renderers[v]();
+  S.view = v; renderer = new views[v]();
+  if (prev) renderer.setCenter(prev.lon, prev.lat);       // la vista nuova parte dal punto che si stava guardando
   renderer.mount($("view"));
+  if (S.follow) renderer.onFollow(true);
   document.querySelectorAll("#viewSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
   render();
 }
@@ -346,10 +476,13 @@ function setFollow(on) {
   render();
 }
 
-// ---------- Dati derivati -----------------------------------------------------------
-const lerp = (a, b, u) => a + (b - a) * u;
-const wrap = x => x > 180 ? x - 360 : x < -180 ? x + 360 : x;
+function selectSat(k) {                     // clic su un satellite: lo seleziona e lo segue (o smette se già seguito)
+  if (S.sel === k && S.follow) return setFollow(false);
+  S.sel = k; S.cardOff = null; $("satSel").value = k; fillMeta();
+  setFollow(true);
+}
 
+// ---------- Dati derivati -----------------------------------------------------------
 function roundAt(rounds, t) {
   let lo = 0, hi = rounds.length - 1;
   while (lo < hi) { const m = (lo + hi + 1) >> 1; if (rounds[m].t0 <= t) lo = m; else hi = m - 1; }
@@ -370,16 +503,17 @@ function footprint(lat0, lon0, lam) {
   return pts;
 }
 
-function derive(tr, t) {
-  const T = tr.track, n = T.lat.length, f = Math.min(Math.max(t / tr.meta.track_dt, 0), n - 1);
+function deriveSat(tr, sat, t) {
+  const T = sat.track, n = T.lat.length, f = Math.min(Math.max(t / tr.meta.track_dt, 0), n - 1);
   const i = Math.min(Math.floor(f), n - 2), u = f - i;
   const lat = lerp(T.lat[i], T.lat[i + 1], u), alt = lerp(T.alt_km[i], T.alt_km[i + 1], u);
   const lon = wrap(T.lon[i] + wrap(T.lon[i + 1] - T.lon[i]) * u);
-  const lam = footprintAngle(tr.meta.earth_radius_km, alt, tr.meta.image_min_elev_deg);
+  const lam = footprintAngle(tr.meta.earth_radius_km, alt, sat.meta.image_min_elev_deg);
   const open = new Set(); let gs = null;
-  for (const w of tr.windows) if (w.t0 <= t && t <= w.t1) { if (w.kind === "target") open.add(w.obj); else gs = w.obj; }
-  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), open, gs, round: roundAt(tr.rounds, t) };
+  for (const w of sat.windows) if (w.t0 <= t && t <= w.t1) { if (w.kind === "target") open.add(w.obj); else gs = w.obj; }
+  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), open, gs, round: roundAt(sat.rounds, t) };
 }
+const derive = (tr, t) => ({ sats: tr.satellites.map(s => deriveSat(tr, s, t)) });
 
 // ---------- UI ----------------------------------------------------------------------
 const fmtT = s => { s = Math.round(s); return `${String((s / 3600) | 0).padStart(2, "0")}:${String(((s % 3600) / 60) | 0).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
@@ -394,14 +528,15 @@ function render() {
   updateCard(d);
 }
 
-// Riquadro del satellite: visibile se il satellite è seguito e «Info satellite» è attivo.
+// Riquadro del satellite selezionato: visibile se è seguito e «Info satellite» è attivo.
 function updateCard(d) {
-  const card = $("satcard"), tr = S.trace, show = S.follow && S.info;
-  card.hidden = !show;
-  if (!show) return;
-  const r = d.round;
+  const card = $("satcard"), tr = S.trace, a = S.follow && S.info ? renderer.satAnchor() : null;
+  card.hidden = !a;
+  if (!a) return;
+  const sat = tr.satellites[S.sel], r = d.sats[S.sel].round, gs = d.sats[S.sel].gs, cap = sat.meta.storage_capacity || 20;
   const tgt = r.action === "image" && r.target !== null ? tr.targets[r.target].name
-    : r.action === "downlink" && d.gs !== null ? tr.stations[d.gs].name : "";
+    : r.action === "downlink" && gs !== null ? tr.stations[gs].name : "";
+  $("cardName").textContent = sat.name; $("cardDot").style.background = sat.color;
   $("pAct").textContent = ACT[r.action] || r.action;
   $("pAct").className = "badge " + r.action;
   $("pTgt").textContent = tgt ? "→ " + tgt : "";
@@ -409,14 +544,13 @@ function updateCard(d) {
   $("pRew").textContent = r.reward.toFixed(3);
   $("pCum").textContent = r.cum_reward.toFixed(3);
   $("pImg").textContent = r.imaged;
-  $("pSto").textContent = `${r.storage.toFixed(1)} / 20`;
-  $("bSto").style.width = (r.storage / 20 * 100) + "%";
+  $("pSto").textContent = `${r.storage.toFixed(1)} / ${cap}`;
+  $("bSto").style.width = (r.storage / cap * 100) + "%";
   $("pBat").textContent = (r.battery * 100).toFixed(0) + " %";
   $("bBat").style.width = (r.battery * 100) + "%";
   // posizione: se l'utente l'ha trascinato, resta alla stessa distanza dal satellite;
   // altrimenti a destra del campo visivo (a sinistra se manca spazio). Sempre dentro la mappa.
-  const a = renderer.satAnchor(), M = $("map"), w = card.offsetWidth, h = card.offsetHeight;
-  if (!a) return;
+  const M = $("map"), w = card.offsetWidth, h = card.offsetHeight;
   let x, y;
   if (S.cardOff) { x = a.x + S.cardOff.x; y = a.y + S.cardOff.y; }
   else {
@@ -451,17 +585,28 @@ function updateCard(d) {
   head.addEventListener("dblclick", () => { S.cardOff = null; render(); });
 })();
 
-function loadTrace(tr) {
-  tr._imagedAt = new Array(tr.targets.length).fill(Infinity);
-  tr.imaged.forEach(e => { tr._imagedAt[e.target] = Math.min(tr._imagedAt[e.target], e.t); });
-  S.trace = tr; S.t = 0;
-  $("time").max = Math.floor(tr.meta.t_end);
-  const m = tr.meta, lam = footprintAngle(m.earth_radius_km, m.altitude_km, m.image_min_elev_deg);
-  const rows = [["Seed", m.seed], ["Round", m.round_s + " s"], ["Target", m.n_targets], ["Quota", m.altitude_km + " km"],
-    ["Inclinazione", m.inclination_deg + "°"], ["Elev. min. imaging", m.image_min_elev_deg + "°"],
-    ["Raggio campo visivo", (lam * m.earth_radius_km).toFixed(0) + " km"], ["Scarto traccia–sim", m.track_vs_sim_max_km + " km"]];
+function fillMeta() {                       // «Episodio» del satellite selezionato
+  const tr = S.trace; if (!tr) return;
+  const m = tr.meta, sat = tr.satellites[S.sel], sm = sat.meta, lam = footprintAngle(m.earth_radius_km, sm.altitude_km, sm.image_min_elev_deg);
+  const rows = [["Seed", m.seed], ["Round", m.round_s + " s"], ["Target", m.n_targets], ["Quota", sm.altitude_km + " km"],
+    ["Inclinazione", sm.inclination_deg + "°"], ["Elev. min. imaging", sm.image_min_elev_deg + "°"],
+    ["Raggio campo visivo", (lam * m.earth_radius_km).toFixed(0) + " km"], ["Scarto traccia–sim", sm.track_vs_sim_max_km + " km"]];
   $("meta").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
-  $("note").textContent = m.note + " Politica: " + m.policy + ".";
+}
+
+function loadTrace(tr) {
+  if (tr.version !== 2) throw new Error(`Formato traccia v${tr.version} non supportato (serve v2): rigenera con scripts/export_trace.py`);
+  tr.satellites.forEach((s, i) => { s.color = s.color || PALETTE[i % PALETTE.length]; });
+  tr._imagedAt = new Array(tr.targets.length).fill(Infinity);   // un target è ripreso se lo ha ripreso un satellite qualsiasi
+  tr.satellites.forEach(s => s.imaged.forEach(e => { tr._imagedAt[e.target] = Math.min(tr._imagedAt[e.target], e.t); }));
+  S.trace = tr; S.t = 0; S.sel = 0; S.cardOff = null;
+  $("time").max = Math.floor(tr.meta.t_end);
+  $("satSel").innerHTML = tr.satellites.map((s, i) => `<option value="${i}">${s.name}</option>`).join("");
+  $("satLbl").hidden = tr.satellites.length < 2;                // il selettore serve solo con più satelliti
+  $("legSats").innerHTML = tr.satellites.length < 2 ? "" :
+    tr.satellites.map(s => `<div><span class="dot" style="background:${s.color}"></span>${s.name}</div>`).join("");
+  $("note").textContent = tr.meta.note + " Politica: " + tr.meta.policy + ".";
+  fillMeta();
   render();
 }
 
@@ -470,21 +615,26 @@ async function boot() {
   try {
     const [list, coast] = await Promise.all([
       fetch("/traces/").then(r => r.json()), fetch("static/coast.json").then(r => r.json())]);
-    assets.coast = coast;
+    assets.coast = coast.map(l => ({ lon: l.map(p => p[0]), lat: l.map(p => p[1]) }));
     const img = new Image(); img.onload = () => { assets.earth = img; render(); }; img.src = "static/earth.jpg";
     const names = list.filter(f => f.name.endsWith(".json")).map(f => f.name).sort();
     if (!names.length) throw new Error("vuoto");
     $("trace").innerHTML = names.map(n => `<option>${n}</option>`).join("");
     const want = new URLSearchParams(location.search).get("trace");
     if (want && names.includes(want)) $("trace").value = want;
-    await selectTrace();
   } catch (e) {
     msg.hidden = false;
     msg.textContent = "Nessuna traccia trovata in outputs/traces. Genera: PYTHONPATH=scripts uv run python scripts/export_trace.py";
+    return;
   }
   setView("2d");
+  await selectTrace();
 }
-async function selectTrace() { loadTrace(await fetch("/traces/" + $("trace").value).then(r => r.json())); }
+async function selectTrace() {
+  $("msg").hidden = true;
+  try { loadTrace(await fetch("/traces/" + $("trace").value).then(r => r.json())); }
+  catch (e) { $("msg").hidden = false; $("msg").textContent = e.message; }
+}
 
 let last = 0;
 function tick(now) {
@@ -501,19 +651,20 @@ $("play").onclick = () => { if (!S.playing && S.trace && S.t >= S.trace.meta.t_e
 $("time").oninput = e => { S.t = +e.target.value; render(); };
 $("speed").onchange = e => { S.speed = +e.target.value; };
 $("trace").onchange = selectTrace;
+$("satSel").onchange = e => { S.sel = +e.target.value; S.cardOff = null; fillMeta(); render(); };
 $("follow").onchange = e => setFollow(e.target.checked);
 function setInfo(on) { S.info = on; $("info").checked = on; render(); }
 $("info").onchange = e => setInfo(e.target.checked);
 $("infoClose").onclick = () => setInfo(false);
 $("fov").onchange = e => { S.fov = e.target.checked; render(); };
 $("track").onchange = e => { S.track = e.target.checked; render(); };
-document.querySelectorAll("#viewSeg button:not(:disabled)").forEach(b => b.onclick = () => setView(b.dataset.v));
+document.querySelectorAll("#viewSeg button").forEach(b => b.onclick = () => setView(b.dataset.v));
 document.querySelectorAll("#earthSeg button").forEach(b => b.onclick = () => {
   S.earth = b.dataset.e;
   document.querySelectorAll("#earthSeg button").forEach(x => x.classList.toggle("on", x === b));
   render();
 });
-addEventListener("keydown", e => { if (e.code === "Space" && e.target.tagName !== "SELECT") { e.preventDefault(); $("play").click(); } });
+addEventListener("keydown", e => { if (e.code === "Space" && !["SELECT", "INPUT"].includes(e.target.tagName)) { e.preventDefault(); $("play").click(); } });
 new ResizeObserver(() => { if (renderer) { renderer.resize(); render(); } }).observe($("stage"));
 requestAnimationFrame(tick);
 boot();

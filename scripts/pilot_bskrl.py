@@ -46,7 +46,7 @@ def make_sat(variable_interval: bool) -> sats.ImagingSatellite:
         dyn_type = dyn.FullFeaturedDynModel
         fsw_type = fsw.ImagingFSWModel
 
-    return PilotSat("pilot", variable_interval=variable_interval)
+    return PilotSat("sat_1", variable_interval=variable_interval)
 
 
 def make_env(variable_interval: bool, n_targets: int, time_limit: float, step: float):

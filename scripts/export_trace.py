@@ -109,15 +109,14 @@ def main():
     tlat, tlon = latlon(np.array([x.r_LP_P for x in targets]))
     oe = sat.sat_args["oe"]
 
+    # Formato v2: dati comuni (target, stazioni) + lista di satelliti. Questo script ne esporta uno;
+    # il viewer ne mostra quanti ne trova in "satellites".
     trace = dict(
-        version=1,
+        version=2,
         meta=dict(
             seed=a.seed, round_s=a.round, t_end=t_end, n_targets=len(targets),
-            inclination_deg=round(float(np.degrees(oe.i)), 2), altitude_km=round(float(alt.mean()), 1),
-            image_min_elev_deg=round(float(np.degrees(sat.sat_args["imageTargetMinimumElevation"])), 1),
             gs_min_elev_deg=round(float(np.degrees(env.world_args.get("gsMinimumElevation", np.radians(10)))), 1),
             earth_radius_km=REQ, track_dt=a.track_dt,
-            track_vs_sim_max_km=round(sim_dev_km, 2),
             note="Posizioni dalla traiettoria usata da BSK-RL per le finestre di accesso "
                  "(TrajectorySimulator), non loggate dalla simulazione completa. "
                  "Campo visivo = zona con elevazione >= image_min_elev_deg; assetto e slew non sono mostrati.",
@@ -126,10 +125,19 @@ def main():
         stations=stations,
         targets=[dict(name=x.name, lat=round(float(la), 3), lon=round(float(lo), 3), priority=round(float(x.priority), 3))
                  for x, la, lo in zip(targets, tlat, tlon)],
-        track=dict(lat=np.round(lat, 3).tolist(), lon=np.round(lon, 3).tolist(), alt_km=np.round(alt, 1).tolist()),
-        windows=windows,
-        rounds=rounds,
-        imaged=imaged_events,
+        satellites=[dict(
+            name=sat.name,
+            meta=dict(
+                inclination_deg=round(float(np.degrees(oe.i)), 2), altitude_km=round(float(alt.mean()), 1),
+                image_min_elev_deg=round(float(np.degrees(sat.sat_args["imageTargetMinimumElevation"])), 1),
+                storage_capacity=round(sat.dynamics.storageUnit.storageCapacity / IMG_BITS, 1),
+                track_vs_sim_max_km=round(sim_dev_km, 2),
+            ),
+            track=dict(lat=np.round(lat, 3).tolist(), lon=np.round(lon, 3).tolist(), alt_km=np.round(alt, 1).tolist()),
+            windows=windows,
+            rounds=rounds,
+            imaged=imaged_events,
+        )],
     )
     env.close()
 
