@@ -1,0 +1,8 @@
+[project]
+name = "tesi-bandit-eo"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "bsk==2.12.0",
+    "bsk-rl==1.3.7",
+]
