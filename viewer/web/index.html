@@ -32,7 +32,10 @@
   .zoom button { width: 28px; height: 28px; padding: 0; background: rgba(18,26,46,.85); }
   #coord { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 10em; font-size: 12px; }
   .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
-  #bar { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  #bar, #liveBar { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  #liveBar { flex-wrap: wrap; }
+  #lvInfo { color: var(--muted); font-size: 12px; }
+  #lvLive.on { background: #e5484d; border-color: #e5484d; color: #fff; font-weight: 600; }
   #time { flex: 1; accent-color: var(--accent); }
   #clock { font-variant-numeric: tabular-nums; min-width: 8.5em; text-align: right; color: var(--muted); }
   aside { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; align-self: start; }
@@ -106,6 +109,13 @@
           <details><summary>Episodio</summary><dl id="meta"></dl></details>
         </div>
       </div>
+    </div>
+    <div id="liveBar" hidden>
+      <button id="lvPause" title="Pausa/riprendi la simulazione" aria-label="Pausa simulazione">❚❚</button>
+      <select id="lvSpeed" title="Velocità della simulazione (secondi simulati per secondo reale)" aria-label="Velocità simulazione"></select>
+      <button id="lvRestart" title="Riavvia l'episodio" aria-label="Riavvia">↻</button>
+      <button id="lvLive" title="Segui l'istante più recente / torna al live">● LIVE</button>
+      <span id="lvInfo"></span>
     </div>
     <div id="bar">
       <button id="play" aria-label="Play/pausa">▶</button>
@@ -503,15 +513,17 @@ function footprint(lat0, lon0, lam) {
   return pts;
 }
 
+const NO_ROUND = { t0: 0, t1: 0, action: "charge", target: null, reward: 0, cum_reward: 0, storage: 0, battery: 1, imaged: 0, alive: true };
+
 function deriveSat(tr, sat, t) {
   const T = sat.track, n = T.lat.length, f = Math.min(Math.max(t / tr.meta.track_dt, 0), n - 1);
-  const i = Math.min(Math.floor(f), n - 2), u = f - i;
-  const lat = lerp(T.lat[i], T.lat[i + 1], u), alt = lerp(T.alt_km[i], T.alt_km[i + 1], u);
-  const lon = wrap(T.lon[i] + wrap(T.lon[i + 1] - T.lon[i]) * u);
+  const i = Math.max(0, Math.min(Math.floor(f), n - 2)), j = Math.min(i + 1, n - 1), u = j === i ? 0 : f - i;   // live: all'inizio c'è un solo campione
+  const lat = lerp(T.lat[i], T.lat[j], u), alt = lerp(T.alt_km[i], T.alt_km[j], u);
+  const lon = wrap(T.lon[i] + wrap(T.lon[j] - T.lon[i]) * u);
   const lam = footprintAngle(tr.meta.earth_radius_km, alt, sat.meta.image_min_elev_deg);
   const open = new Set(); let gs = null;
   for (const w of sat.windows) if (w.t0 <= t && t <= w.t1) { if (w.kind === "target") open.add(w.obj); else gs = w.obj; }
-  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), open, gs, round: roundAt(sat.rounds, t) };
+  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), open, gs, round: sat.rounds.length ? roundAt(sat.rounds, t) : NO_ROUND };
 }
 const derive = (tr, t) => ({ sats: tr.satellites.map(s => deriveSat(tr, s, t)) });
 
@@ -594,14 +606,17 @@ function fillMeta() {                       // «Episodio» del satellite selezi
   $("meta").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
 }
 
-function loadTrace(tr) {
+function loadTrace(tr, live = false) {       // live: nuovo snapshot dello stream, si mantiene la selezione
   if (tr.version !== 2) throw new Error(`Formato traccia v${tr.version} non supportato (serve v2): rigenera con scripts/export_trace.py`);
   tr.satellites.forEach((s, i) => { s.color = s.color || PALETTE[i % PALETTE.length]; });
   tr._imagedAt = new Array(tr.targets.length).fill(Infinity);   // un target è ripreso se lo ha ripreso un satellite qualsiasi
   tr.satellites.forEach(s => s.imaged.forEach(e => { tr._imagedAt[e.target] = Math.min(tr._imagedAt[e.target], e.t); }));
-  S.trace = tr; S.t = 0; S.sel = 0; S.cardOff = null;
-  $("time").max = Math.floor(tr.meta.t_end);
+  const keep = live && S.trace && S.sel < tr.satellites.length;
+  S.trace = tr; S.t = live ? tr.meta.t_end : 0;
+  if (!keep) { S.sel = 0; S.cardOff = null; }
+  $("time").max = Math.max(1, Math.floor(tr.meta.t_end));
   $("satSel").innerHTML = tr.satellites.map((s, i) => `<option value="${i}">${s.name}</option>`).join("");
+  $("satSel").value = S.sel;
   $("satLbl").hidden = tr.satellites.length < 2;                // il selettore serve solo con più satelliti
   $("legSats").innerHTML = tr.satellites.length < 2 ? "" :
     tr.satellites.map(s => `<div><span class="dot" style="background:${s.color}"></span>${s.name}</div>`).join("");
@@ -611,35 +626,113 @@ function loadTrace(tr) {
   render();
 }
 
+// ---------- Modalità live: stream SSE dal server di simulazione (scripts/sim_server.py) ----------
+// Il server invia uno `snapshot` (traccia v2 accumulata) e poi un `round` per ogni round, con i soli
+// dati nuovi, che qui si accodano alla traccia. Il cursore del tempo segue l'ultimo dato: alla
+// velocità del server (1× = tempo reale) oppure, a «Max», sempre sull'istante più recente.
+const LIVE = "/live";
+const L = { es: null, on: false, follow: true, status: null, anchorWall: 0, anchorT: 0, latestT: 0 };
+const SPEEDS = [["1", "1× (tempo reale)"], ["10", "10×"], ["60", "60×"], ["300", "300×"], ["1000", "1000×"], ["max", "Max (senza pause)"]];
+$("lvSpeed").innerHTML = SPEEDS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+
+const liveCtl = msg => fetch(LIVE + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(msg) })
+  .then(r => r.json()).catch(() => null);
+
+function setStatus(st) {
+  L.status = st; if (!st) return;
+  const sp = st.speed === "max" ? "Max" : st.speed + "×";
+  $("lvInfo").textContent = (st.error || (st.done ? "episodio terminato" : st.paused ? "in pausa" : "in esecuzione")) +
+    " · " + sp + " · seed " + st.seed + (L.follow ? "" : " · storico");
+  $("lvPause").textContent = st.paused ? "▶" : "❚❚";
+  $("lvSpeed").value = String(st.speed);
+  $("lvLive").classList.toggle("on", L.follow);
+}
+
+function startLive() {
+  stopLive(); L.on = true; L.follow = true; setPlaying(false);
+  $("liveBar").hidden = false; $("play").hidden = true; $("speed").hidden = true;
+  const es = L.es = new EventSource(LIVE + "/stream");
+  es.addEventListener("snapshot", e => {
+    const d = JSON.parse(e.data);
+    loadTrace(d.trace, true);
+    L.follow = true; L.latestT = L.anchorT = d.trace.meta.t_end; L.anchorWall = performance.now(); S.t = L.latestT;
+    setStatus(d.status); render();
+  });
+  es.addEventListener("round", e => applyRound(JSON.parse(e.data)));
+  es.addEventListener("status", e => setStatus(JSON.parse(e.data)));
+  es.onerror = () => { $("lvInfo").textContent = "connessione al simulatore persa… riprovo"; };
+}
+function stopLive() {
+  if (L.es) L.es.close();
+  L.es = null; L.on = false; $("liveBar").hidden = true; $("play").hidden = false; $("speed").hidden = false;
+}
+
+function applyRound(d) {
+  const tr = S.trace; if (!tr || !L.on) return;
+  d.sats.forEach((sd, k) => {
+    const s = tr.satellites[k];
+    for (const key of ["lat", "lon", "alt_km"]) for (const v of sd.track[key]) s.track[key].push(v);
+    s.rounds.push(sd.round);
+    sd.imaged.forEach(e => { s.imaged.push(e); tr._imagedAt[e.target] = Math.min(tr._imagedAt[e.target], e.t); });
+    const idx = s._widx || (s._widx = new Map(s.windows.map((w, i) => [w.kind + "|" + w.obj + "|" + w.t0, i])));
+    sd.windows.forEach(w => {                  // nuova finestra, oppure finestra estesa da un nuovo blocco di calcolo
+      const key = w.kind + "|" + w.obj + "|" + w.t0;
+      if (idx.has(key)) s.windows[idx.get(key)].t1 = w.t1; else { idx.set(key, s.windows.length); s.windows.push(w); }
+    });
+    s.meta.track_vs_sim_max_km = sd.dev;
+  });
+  tr.meta.t_end = d.t1; $("time").max = Math.floor(d.t1);
+  L.latestT = d.t1; L.anchorT = d.t0; L.anchorWall = performance.now();
+  setStatus(d.status);
+}
+
+$("lvPause").onclick = () => liveCtl({ action: L.status && L.status.paused ? "resume" : "pause" });
+$("lvSpeed").onchange = e => liveCtl({ action: "speed", speed: e.target.value === "max" ? "max" : +e.target.value });
+$("lvRestart").onclick = () => liveCtl({ action: "restart" });
+$("lvLive").onclick = () => { L.follow = true; setStatus(L.status); };
+
 async function boot() {
   const msg = $("msg");
+  let names = [], liveOk = false;
   try {
     const [list, coast] = await Promise.all([
       fetch("/traces/").then(r => r.json()), fetch("static/coast.json").then(r => r.json())]);
     assets.coast = coast.map(l => ({ lon: l.map(p => p[0]), lat: l.map(p => p[1]) }));
     const img = new Image(); img.onload = () => { assets.earth = img; render(); }; img.src = "static/earth.jpg";
-    const names = list.filter(f => f.name.endsWith(".json")).map(f => f.name).sort();
-    if (!names.length) throw new Error("vuoto");
-    $("trace").innerHTML = names.map(n => `<option>${n}</option>`).join("");
-    const want = new URLSearchParams(location.search).get("trace");
-    if (want && names.includes(want)) $("trace").value = want;
-  } catch (e) {
+    names = list.filter(f => f.name.endsWith(".json")).map(f => f.name).sort();
+  } catch (e) { /* senza tracce si può comunque usare il live */ }
+  try {                                         // il server di simulazione è opzionale
+    const ac = new AbortController(); setTimeout(() => ac.abort(), 1500);
+    liveOk = (await fetch(LIVE + "/status", { signal: ac.signal })).ok;
+  } catch (e) { /* non disponibile */ }
+  const opts = (liveOk ? [["live", "● Live (simulazione)"]] : []).concat(names.map(n => [n, n]));
+  if (!opts.length) {
     msg.hidden = false;
     msg.textContent = "Nessuna traccia trovata in outputs/traces. Genera: PYTHONPATH=scripts uv run python scripts/export_trace.py";
     return;
   }
+  $("trace").innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  const want = new URLSearchParams(location.search).get("trace");
+  if (want && opts.some(o => o[0] === want)) $("trace").value = want;
+  else if (names.length) $("trace").value = names[0];       // di default un file, non il live
   setView("2d");
   await selectTrace();
 }
 async function selectTrace() {
   $("msg").hidden = true;
+  if ($("trace").value === "live") return startLive();
+  stopLive();
   try { loadTrace(await fetch("/traces/" + $("trace").value).then(r => r.json())); }
   catch (e) { $("msg").hidden = false; $("msg").textContent = e.message; }
 }
 
 let last = 0;
 function tick(now) {
-  if (S.playing && S.trace) {
+  if (L.on && L.follow && S.trace) {            // live: il cursore segue i dati in arrivo
+    const v = L.status ? L.status.speed : 1;
+    S.t = v === "max" ? L.latestT : Math.min(L.latestT, L.anchorT + (now - L.anchorWall) / 1000 * v);
+    render();
+  } else if (S.playing && S.trace) {
     S.t += (now - last) / 1000 * S.speed;
     if (S.t >= S.trace.meta.t_end) { S.t = S.trace.meta.t_end - 1e-3; setPlaying(false); }
     render();
@@ -649,7 +742,7 @@ function tick(now) {
 function setPlaying(p) { S.playing = p; $("play").textContent = p ? "❚❚" : "▶"; }
 
 $("play").onclick = () => { if (!S.playing && S.trace && S.t >= S.trace.meta.t_end - 1) S.t = 0; setPlaying(!S.playing); };
-$("time").oninput = e => { S.t = +e.target.value; render(); };
+$("time").oninput = e => { S.t = +e.target.value; if (L.on) { L.follow = false; setStatus(L.status); } render(); };
 $("speed").onchange = e => { S.speed = +e.target.value; };
 $("trace").onchange = selectTrace;
 $("satSel").onchange = e => { S.sel = +e.target.value; S.cardOff = null; fillMeta(); render(); };

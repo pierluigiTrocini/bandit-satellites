@@ -1,7 +1,11 @@
-# Viewer delle tracce BSK-RL: http://localhost:8080
-# Avvio: docker compose up -d      Stop: docker compose down
-# Nessuna build: immagine nginx ufficiale + file montati (le modifiche si vedono con un refresh).
-# Altri servizi (es. un'API che lancia le simulazioni) si possono aggiungere qui sotto.
+# Viewer BSK-RL: http://localhost:8080
+# Avvio: docker compose up -d      Stop: docker compose down      Log simulazione: docker compose logs -f sim
+# Nessuna build: immagini ufficiali + file montati (le modifiche al viewer si vedono con un refresh).
+#
+#  viewer  nginx: pagina statica, tracce di outputs/traces e proxy dello stream live (/live/)
+#  sim     simulazione BSK-RL che trasmette l'episodio al viewer (menu «● Live»). Il primo avvio
+#          installa le dipendenze del progetto (uv.lock) e scarica i dati di Basilisk: qualche minuto.
+#          Parametri: SIM_ARGS="--sats 5 --planes 5 --speed max" docker compose up -d
 services:
   viewer:
     image: nginx:1.27-alpine
@@ -12,3 +16,24 @@ services:
       - ./viewer/web:/usr/share/nginx/html:ro
       - ./outputs/traces:/data/traces:ro   # tracce prodotte da scripts/export_trace.py
     restart: unless-stopped
+
+  sim:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /app
+    environment:
+      UV_PROJECT_ENVIRONMENT: /venv      # ambiente Linux separato da .venv del Mac
+      UV_LINK_MODE: copy
+      UV_PYTHON_DOWNLOADS: never
+      PYTHONPATH: /app/scripts
+      PYTHONDONTWRITEBYTECODE: "1"
+      SIM_ARGS: ${SIM_ARGS:-}            # argomenti di sim_server.py (default: --sats 3 --speed 60)
+    volumes:
+      - .:/app:ro
+      - sim-venv:/venv
+      - sim-cache:/root/.cache           # dati di Basilisk (effemeridi), scaricati una volta
+    command: sh -c "uv sync --frozen && exec uv run --no-sync python scripts/sim_server.py --port 8081 $${SIM_ARGS:---sats 3 --speed 60}"
+    restart: unless-stopped
+
+volumes:
+  sim-venv:
+  sim-cache:
