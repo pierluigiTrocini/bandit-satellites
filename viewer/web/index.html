@@ -605,7 +605,8 @@ function loadTrace(tr) {
   $("satLbl").hidden = tr.satellites.length < 2;                // il selettore serve solo con più satelliti
   $("legSats").innerHTML = tr.satellites.length < 2 ? "" :
     tr.satellites.map(s => `<div><span class="dot" style="background:${s.color}"></span>${s.name}</div>`).join("");
-  $("note").textContent = tr.meta.note + " Politica: " + tr.meta.policy + ".";
+  $("note").textContent = (tr.meta.constellation ? "Costellazione: " + tr.meta.constellation + ". " : "") +
+    tr.meta.note + " Politica: " + tr.meta.policy + ".";
   fillMeta();
   render();
 }

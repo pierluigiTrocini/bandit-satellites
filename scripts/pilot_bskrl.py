@@ -23,7 +23,7 @@ K_AHEAD = 8  # numero di target "prossimi" esposti come azioni Image
 ORBIT = 5700.0  # [s] circa un'orbita LEO
 
 
-def make_sat(variable_interval: bool) -> sats.ImagingSatellite:
+def make_sat(variable_interval: bool, name: str = "sat_1") -> sats.ImagingSatellite:
     class PilotSat(sats.ImagingSatellite):
         observation_spec = [
             obs.SatProperties(
@@ -46,7 +46,7 @@ def make_sat(variable_interval: bool) -> sats.ImagingSatellite:
         dyn_type = dyn.FullFeaturedDynModel
         fsw_type = fsw.ImagingFSWModel
 
-    return PilotSat("sat_1", variable_interval=variable_interval)
+    return PilotSat(name, variable_interval=variable_interval)
 
 
 def make_env(variable_interval: bool, n_targets: int, time_limit: float, step: float):
