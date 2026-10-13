@@ -34,6 +34,12 @@
   .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
   #bar, #liveBar { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
   #liveBar { flex-wrap: wrap; }
+  #cfgPanel { margin-top: 8px; }
+  #cfgPanel .cols { display: flex; gap: 10px; flex-wrap: wrap; }
+  #cfgPanel label { flex: 1 1 280px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+  #cfgPanel textarea { width: 100%; box-sizing: border-box; height: 17em; resize: vertical; font: 12px/1.4 ui-monospace, monospace; tab-size: 2; white-space: pre; overflow: auto; }
+  #cfgStat { margin-top: 6px; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; }
+  #cfgStat.bad { color: #c0504d; }
   #lvErr { margin: 8px 0 0; padding: 8px 10px; border: 1px solid #c0504d; border-radius: 6px; font: 12px/1.4 ui-monospace, monospace;
     white-space: pre-wrap; max-height: 9em; overflow: auto; cursor: pointer; }
   #lvInfo { color: var(--muted); font-size: 12px; }
@@ -117,9 +123,17 @@
       <select id="lvSpeed" title="Velocità della simulazione (secondi simulati per secondo reale)" aria-label="Velocità simulazione"></select>
       <button id="lvRestart" title="Riavvia l'episodio" aria-label="Riavvia">↻</button>
       <button id="lvLive" title="Segui l'istante più recente / torna al live">● LIVE</button>
+      <button id="lvEdit" title="Modifica i JSON di costellazione e scenario: a ogni modifica valida la simulazione riparte">✎ Modifica</button>
       <button id="lvImport" title="Importa i file JSON di costellazione e/o scenario (si possono scegliere insieme)">⇪ Importa</button>
       <input type="file" id="lvFiles" accept=".json,application/json" multiple hidden>
       <span id="lvInfo"></span>
+    </div>
+    <div id="cfgPanel" hidden>
+      <div class="cols">
+        <label>Costellazione <small>constellation/v1</small><textarea id="cfgC" spellcheck="false" aria-label="JSON della costellazione"></textarea></label>
+        <label>Scenario <small>scenario/v1</small><textarea id="cfgS" spellcheck="false" aria-label="JSON dello scenario"></textarea></label>
+      </div>
+      <div id="cfgStat" role="status"></div>
     </div>
     <pre id="lvErr" hidden role="alert" title="Clic per chiudere"></pre>
     <div id="bar">
@@ -696,6 +710,36 @@ $("lvSpeed").onchange = e => liveCtl({ action: "speed", speed: e.target.value ==
 $("lvRestart").onclick = () => liveCtl({ action: "restart" });
 $("lvLive").onclick = () => { L.follow = true; setStatus(L.status); };
 
+// Editor: due JSON modificabili; ogni modifica valida e diversa da quella in uso riavvia la simulazione.
+const E = { applied: null, timer: 0, seq: 0 };
+const norm = o => JSON.stringify(o);
+function cfgStat(msg, bad) { const e = $("cfgStat"); e.textContent = msg; e.classList.toggle("bad", !!bad); }
+async function fillEditor() {
+  const j = u => fetch(u, { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
+  const cur = await j(LIVE + "/config");
+  const c = cur && cur.constellation || await j("configs/sentinel2.constellation.json");
+  const s = cur && cur.scenario || await j("configs/default.scenario.json");
+  if (!c || !s) return cfgStat("impossibile caricare la configurazione", true);
+  $("cfgC").value = JSON.stringify(c, null, 2); $("cfgS").value = JSON.stringify(s, null, 2);
+  E.applied = norm([c, s]);
+  cfgStat(cur ? "in uso: queste impostazioni (si applicano da sole a ogni modifica valida)"
+              : "nessun file in uso (costellazione di prova): l'esempio mostrato parte alla prima modifica");
+}
+async function applyEditor() {
+  let c, s;
+  try { c = JSON.parse($("cfgC").value); } catch (x) { return cfgStat("costellazione: JSON non valido (" + x.message + ")", true); }
+  try { s = JSON.parse($("cfgS").value); } catch (x) { return cfgStat("scenario: JSON non valido (" + x.message + ")", true); }
+  if (norm([c, s]) === E.applied) return cfgStat("nessuna modifica rispetto alla simulazione in corso");
+  const my = ++E.seq; cfgStat("applico…");
+  const r = await fetch(LIVE + "/scenario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ constellation: c, scenario: s }) })
+    .then(async r => ({ ok: r.ok, j: await r.json() })).catch(() => ({ ok: false, j: { error: "server non raggiungibile" } }));
+  if (my !== E.seq) return;                           // nel frattempo c'e' una modifica piu' recente
+  if (r.ok) { E.applied = norm([c, s]); cfgStat(`applicato: ${r.j.satellites} satelliti, ${r.j.stations} stazioni, seed ${r.j.seed}; simulazione riavviata`); }
+  else cfgStat((r.j.errors || [r.j.error]).join("\n") + "\n(la simulazione in corso non è stata toccata)", true);
+}
+for (const id of ["cfgC", "cfgS"]) $(id).oninput = () => { clearTimeout(E.timer); E.timer = setTimeout(applyEditor, 900); };
+$("lvEdit").onclick = () => { const p = $("cfgPanel"); p.hidden = !p.hidden; if (!p.hidden) fillEditor(); };
+
 // Importazione: i file si riconoscono dal campo "schema" (constellation/v1 o scenario/v1); li valida il server.
 function showErr(lines) { const e = $("lvErr"); e.textContent = lines.join("\n"); e.hidden = !lines.length; }
 $("lvErr").onclick = () => showErr([]);
@@ -718,6 +762,7 @@ $("lvFiles").onchange = async e => {
     if (!r.ok) errs.push(...(r.j.errors || [r.j.error]));
   }
   showErr(errs);
+  if (!errs.length && !$("cfgPanel").hidden) setTimeout(fillEditor, 300);   // l'editor riflette i file importati
 };
 
 async function boot() {

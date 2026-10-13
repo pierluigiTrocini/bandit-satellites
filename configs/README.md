@@ -2,7 +2,7 @@
 
 Due file JSON separati, validati da `scripts/config_io.py` (chiavi sconosciute = errore; le chiavi che
 iniziano con `_` sono commenti). Si importano dal viewer (modalità Live, «⇪ Importa», anche entrambi insieme)
-oppure da riga di comando (`--constellation`, `--scenario`). Un file omesso resta quello in uso.
+oppure si modificano nell'editor del viewer («✎ Modifica»: a ogni modifica valida la simulazione riparte; se i file non sono validi resta in corso quella precedente), oppure da riga di comando (`--constellation`, `--scenario`). Un file omesso resta quello in uso.
 
 ## `constellation/v1` — cosa si simula
 

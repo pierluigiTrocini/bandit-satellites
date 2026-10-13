@@ -15,6 +15,7 @@ services:
       - ./viewer/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./viewer/web:/usr/share/nginx/html:ro
       - ./outputs/traces:/data/traces:ro   # tracce prodotte da scripts/export_trace.py
+      - ./configs:/data/configs:ro   # esempi di configurazione per l'editor del viewer
     restart: unless-stopped
 
   sim:
