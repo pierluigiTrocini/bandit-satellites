@@ -74,6 +74,22 @@
   .badge { padding: 1px 8px; border-radius: 10px; font-weight: 600; color: #05212b; background: var(--accent); }
   .badge.downlink { background: var(--gs); } .badge.charge { background: var(--ok); }
   .sub { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  #logWrap { margin-top: 10px; }
+  #logToggle { font-size: 12px; }
+  #logPanel { margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; background: rgba(18,26,46,.6); }
+  #logHead { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  #logCount { color: var(--muted); font-size: 11px; margin-left: auto; }
+  #logList { max-height: 230px; overflow-y: auto; padding: 4px 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #logList .lg { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px dashed rgba(255,255,255,.05); align-items: baseline; }
+  #logList .lg time { color: var(--muted); flex: none; }
+  #logList .lg .dot { flex: none; }
+  #logList .lg .k { flex: none; min-width: 74px; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  #logList .k.image { color: var(--accent); } #logList .k.downlink, #logList .k.rx { color: var(--gs); } #logList .k.uplink, #logList .k.tx { color: #ffd166; }
+  #logList .k.charge { color: var(--ok); } #logList .k.contact { color: var(--muted); } #logList .k.fail { color: #ff7b7b; } #logList .k.req { color: #c9a7ff; }
+  #logList details { flex: 1; } #logList summary { cursor: pointer; }
+  #logList ul { margin: 3px 0 4px 16px; padding: 0; color: var(--muted); }
+  #logList .empty { color: var(--muted); padding: 8px 0; }
+  #logNote { margin: 0; padding: 6px 10px 8px; }
   #notices { margin: 0 0 14px; }
   #notices .note { border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; padding: 7px 10px; margin-top: 6px; font-size: 12px; line-height: 1.4; }
   #notices .note.warning { border-left-color: #ffb454; background: rgba(255,180,84,.08); }
@@ -155,6 +171,20 @@
       <span id="coord"></span><span id="clock"></span>
     </div>
     <p class="hint">Rotella: zoom · Trascina: sposta/ruota · Doppio clic: vista iniziale · Clic su un satellite: selezionalo e segui</p>
+    <div id="logWrap">
+      <button id="logToggle" aria-expanded="false" aria-controls="logPanel" title="Mostra/nascondi il log degli eventi fino all'istante corrente">☰ Log eventi</button>
+      <div id="logPanel" hidden>
+        <div id="logHead">
+          <div class="seg" id="logTabs" aria-label="Tipo di log"><button data-t="sat" class="on">Satelliti</button><button data-t="gs">Stazioni a terra</button></div>
+          <label>Satellite <select id="logSat" aria-label="Filtra per satellite"></select></label>
+          <label title="Arrivi e scadenze delle richieste a terra (molto frequenti con un flusso)"><input type="checkbox" id="logReq"> richieste</label>
+          <label title="Inizio e fine dei contatti con le stazioni"><input type="checkbox" id="logContact" checked> contatti</label>
+          <span id="logCount"></span>
+        </div>
+        <div id="logList" role="log" aria-live="off"></div>
+        <p id="logNote" class="hint"></p>
+      </div>
+    </div>
   </div>
   <aside>
     <div id="notices" hidden><h2>Avvisi del simulatore</h2><div id="noticeList"></div></div>
@@ -585,6 +615,108 @@ function deriveSat(tr, sat, t) {
 }
 const derive = (tr, t) => ({ sats: tr.satellites.map(s => deriveSat(tr, s, t)) });
 
+// ---------- Log eventi ---------------------------------------------------------------
+// Derivato dai dati della traccia (round, finestre, uplink, richieste): niente di più di quello che il simulatore registra.
+// Il modello non prevede manovre orbitali (la traiettoria non cambia): i «cambi di assetto» sono i puntamenti impliciti nelle azioni.
+const LOG = { open: false, tab: "sat", filter: "all", last: 0, keys: new Set(), cache: [], cacheKey: "" };
+const escHtml = x => String(x).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function buildLog(tr) {
+  const ev = [], ST = i => i == null ? "terra (piano iniziale)" : tr.stations[i].name, TG = i => tr.targets[i] ? tr.targets[i].name : "#" + i;
+  const roleOf = i => (tr.stations[i].roles || ["uplink", "downlink"]).join("+");
+  const push = e => ev.push(e);
+  const stationAt = (sat, t, role) => {
+    for (const w of sat.windows) if (w.kind === "station" && w.t0 <= t && t <= w.t1 && (!role || (tr.stations[w.obj].roles || [role]).includes(role))) return w.obj;
+    return null;
+  };
+  const plan = tr.meta.mode === "plan";
+  tr.satellites.forEach((sat, k) => {
+    const imagedAt = new Map(sat.imaged.map(e => [e.target, e.t]));
+    let prev = null, runStart = 0;
+    sat.rounds.forEach(r => {
+      const key = r.action + "|" + (r.action === "image" ? r.target : "");
+      if (key !== prev) {
+        if (prev && prev.startsWith("image|")) {                         // l'acquisizione precedente non è andata a buon fine
+          const T = +prev.split("|")[1];
+          if (!(imagedAt.has(T) && imagedAt.get(T) >= runStart)) push({ t: r.t0, scope: "sat", sat: k, kind: "fail", text: `Acquisizione mancata: ${TG(T)} (finestra chiusa prima del puntamento)` });
+        }
+        if (r.action === "image" && r.target !== null) push({ t: r.t0, scope: "sat", sat: k, kind: "image", text: `Puntamento e acquisizione: ${TG(r.target)}` });
+        else if (r.action === "downlink") { const g = stationAt(sat, r.t0, "downlink"); push({ t: r.t0, scope: "sat", sat: k, kind: "downlink", text: `Puntamento nadir e downlink${g !== null ? " verso " + ST(g) : ""}` }); }
+        else if (r.action === "charge") push({ t: r.t0, scope: "sat", sat: k, kind: "charge", text: "Ricarica / in attesa" });
+        prev = key; runStart = r.t0;
+      }
+    });
+    sat.imaged.forEach(e => push({ t: e.t, scope: "sat", sat: k, kind: "image", text: `Immagine acquisita: ${TG(e.target)}` }));
+    sat.windows.forEach(w => {
+      if (w.kind !== "station") return;
+      push({ t: w.t0, scope: "sat", sat: k, kind: "contact", text: `Inizio contatto con ${ST(w.obj)} (${roleOf(w.obj)})` });
+      push({ t: w.t1, scope: "sat", sat: k, kind: "contact", text: `Fine contatto con ${ST(w.obj)}` });
+      push({ t: w.t0, scope: "gs", sat: k, station: w.obj, kind: "contact", text: `${ST(w.obj)}: ${sat.name} in vista (${roleOf(w.obj)})` });
+      push({ t: w.t1, scope: "gs", sat: k, station: w.obj, kind: "contact", text: `${ST(w.obj)}: ${sat.name} fuori vista` });
+    });
+    (sat.uplinks || []).forEach(u => {
+      if (!u.ok) {
+        push({ t: u.t, scope: "sat", sat: k, kind: "fail", text: `Uplink fallito da ${ST(u.station)}: ${u.reason}` });
+        push({ t: u.t, scope: "gs", sat: k, station: u.station, kind: "fail", text: `${ST(u.station)}: invio a ${sat.name} non riuscito (${u.reason})` });
+        return;
+      }
+      const cmds = (u.tasks || []).map(c => c.type === "image" ? `Immagine: ${TG(c.target)} · finestra ${fmtT(c.t0)}–${fmtT(c.t1)}` : `Downlink: ${ST(c.station)} · ${fmtT(c.t0)}–${fmtT(c.t1)}`);
+      const head = `${cmds.length} comandi, ${(u.new_known || []).length} richieste nuove, valido fino a ${fmtT(u.horizon_end)}`;
+      push({ t: u.t, scope: "sat", sat: k, kind: "uplink", text: `Uplink ricevuto da ${ST(u.station)}: piano con ${head}`, detail: cmds });
+      push({ t: u.t, scope: "gs", sat: k, station: u.station, kind: "tx", text: `${ST(u.station)} → ${sat.name}: invio piano (${head})`, detail: cmds });
+    });
+  });
+  // richieste e dati ricevuti a terra
+  tr.targets.forEach((g, i) => {
+    if (!("arrival_s" in g)) return;
+    push({ t: g.arrival_s, scope: "gs", sat: -1, kind: "req", text: `Richiesta ${g.id} arrivata a terra (priorità ${(+g.priority).toFixed(2)}${g.expires_s !== undefined ? ", scade " + fmtT(g.expires_s) : ", senza scadenza"})` });
+  });
+  const expired = new Map();                                            // le scadenze dello stesso istante si raggruppano
+  (tr.targets_removed || []).forEach(e => {
+    if (e.reason === "expired") { (expired.get(e.t) || expired.set(e.t, []).get(e.t)).push(TG(e.idx)); return; }
+    const k = tr.satellites.findIndex(s => s.imaged.some(x => x.target === e.idx));
+    const g = k >= 0 ? stationAt(tr.satellites[k], e.t, "downlink") : null;
+    push({ t: e.t, scope: "gs", sat: k, station: g, kind: "rx", text: `${g !== null ? ST(g) + ": ricezione" : "Terra: ricezione"} dati da ${k >= 0 ? tr.satellites[k].name : "?"}: ${TG(e.idx)} confermata ripresa` });
+  });
+  expired.forEach((names, t) => push(names.length === 1
+    ? { t, scope: "gs", sat: -1, kind: "req", text: `Richiesta ${names[0]} scaduta senza essere ripresa` }
+    : { t, scope: "gs", sat: -1, kind: "req", text: `${names.length} richieste scadute senza essere riprese`, detail: names }));
+  return ev.sort((a, b) => a.t - b.t);
+}
+
+function updateLog(force) {
+  if (!LOG.open || !S.trace) return;
+  const now = performance.now(); if (!force && now - LOG.last < 400) return; LOG.last = now;
+  const tr = S.trace;
+  const key = tr.satellites.map(s => [s.rounds.length, s.uplinks.length, s.windows.length, s.imaged.length].join("/")).join(",") +
+    "|" + tr.targets.length + "|" + tr.targets_removed.length + "|" + tr.meta.seed;
+  if (LOG.cacheKey !== key) { LOG.cache = buildLog(tr); LOG.cacheKey = key; }
+  const sel = LOG.filter === "all" ? null : +LOG.filter;
+  const showReq = $("logReq").checked, showContact = $("logContact").checked;
+  const list = LOG.cache.filter(e => e.t <= S.t && e.scope === LOG.tab && (sel === null || e.sat === sel || (e.scope === "gs" && e.sat === -1))
+    && (showReq || e.kind !== "req") && (showContact || e.kind !== "contact"));
+  const shown = list.slice(-300).reverse();
+  $("logCount").textContent = `${list.length} eventi fino a ${fmtT(S.t)}` + (list.length > shown.length ? ` · ultimi ${shown.length}` : "");
+  $("logList").innerHTML = shown.length ? shown.map(e => {
+    const sat = e.sat >= 0 ? tr.satellites[e.sat] : null, id = `${e.scope}|${e.sat}|${e.t}|${e.kind}|${e.text.slice(0, 30)}`;
+    const lead = `<time>${fmtT(e.t)}</time>${sat ? `<span class="dot" style="background:${sat.color}" title="${escHtml(sat.name)}"></span>` : `<span class="dot" style="background:transparent"></span>`}<span class="k ${e.kind}">${{ image: "Image", downlink: "Downlink", uplink: "Uplink", charge: "Charge", contact: "Contatto", fail: "Esito", rx: "Ricezione", tx: "Invio", req: "Richiesta" }[e.kind]}</span>`;
+    const body = e.detail && e.detail.length
+      ? `<details data-k="${escHtml(id)}"${LOG.keys.has(id) ? " open" : ""}><summary>${escHtml(e.text)}</summary><ul>${e.detail.map(c => `<li>${escHtml(c)}</li>`).join("")}</ul></details>`
+      : `<span>${escHtml(e.text)}</span>`;
+    return `<div class="lg">${lead}${body}</div>`;
+  }).join("") : `<div class="empty">Nessun evento fino a questo istante.</div>`;
+}
+$("logList").addEventListener("toggle", e => { const k = e.target.dataset && e.target.dataset.k; if (k) e.target.open ? LOG.keys.add(k) : LOG.keys.delete(k); }, true);
+$("logToggle").onclick = () => {
+  LOG.open = !LOG.open; $("logPanel").hidden = !LOG.open; $("logToggle").setAttribute("aria-expanded", LOG.open); updateLog(true);
+};
+$("logTabs").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  LOG.tab = b.dataset.t; [...$("logTabs").children].forEach(x => x.classList.toggle("on", x === b)); updateLog(true);
+};
+$("logSat").onchange = e => { LOG.filter = e.target.value; updateLog(true); };
+$("logReq").onchange = $("logContact").onchange = () => updateLog(true);
+
 // ---------- UI ----------------------------------------------------------------------
 const fmtT = s => { s = Math.round(s); return `${String((s / 3600) | 0).padStart(2, "0")}:${String(((s % 3600) / 60) | 0).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
 const ACT = { image: "Image", downlink: "Downlink", charge: "Charge" };
@@ -593,6 +725,7 @@ function render() {
   const tr = S.trace; if (!tr || !renderer) return;
   const d = derive(tr, S.t);
   renderer.draw(S, d);
+  updateLog();
   $("time").value = S.t;
   $("clock").textContent = `${fmtT(S.t)} / ${fmtT(tr.meta.t_end)}`;
   updateCard(d);
@@ -699,6 +832,10 @@ function loadTrace(tr, live = false) {       // live: nuovo snapshot dello strea
   $("satSel").innerHTML = tr.satellites.map((s, i) => `<option value="${i}">${s.name}</option>`).join("");
   $("satSel").value = S.sel;
   $("satLbl").hidden = tr.satellites.length < 2;                // il selettore serve solo con più satelliti
+  $("logSat").innerHTML = `<option value="all">Tutti</option>` + tr.satellites.map((s, i) => `<option value="${i}">${s.name}</option>`).join("");
+  LOG.filter = "all"; LOG.cacheKey = "";
+  $("logNote").textContent = "Il log mostra ciò che il simulatore registra, fino all'istante del cursore. Il modello non prevede manovre orbitali (la traiettoria non cambia): i cambi d'assetto sono i puntamenti impliciti nelle azioni." +
+    (tr.meta.mode === "plan" ? "" : " In questa modalità i comandi non passano da un contatto di uplink: non ci sono eventi di invio piano.");
   $("legSats").innerHTML = tr.satellites.length < 2 ? "" :
     tr.satellites.map(s => `<div><span class="dot" style="background:${s.color}"></span>${s.name}</div>`).join("");
   $("note").textContent = (tr.meta.constellation ? "Costellazione: " + tr.meta.constellation + ". " : "") +

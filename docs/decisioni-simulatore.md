@@ -641,6 +641,12 @@ dell'utente prima di ogni commit**.
 - `scripts/sim_server.py`: stream live, `POST /scenario` (anche `requests`), `GET /config`, `GET /requests.json`.
 - Viewer: importazione e editor dei file (anche richieste), riquadro avvisi, richieste dinamiche (in attesa di uplink, nel piano,
   scadute), dati di piano nel riquadro satellite.
+- Viewer, **log eventi** (pulsante «☰ Log eventi» sotto la mappa, a comparsa): derivato lato viewer dai dati della traccia, fino
+  all'istante del cursore. Scheda *Satelliti*: puntamento/acquisizione, immagini acquisite e mancate, downlink, ricarica,
+  contatti, uplink ricevuti; scheda *Stazioni a terra*: contatti, invio piano con **lista dei comandi a comparsa**, ricezione dati
+  (richiesta confermata ripresa), arrivi e scadenze delle richieste (filtro, spento di default). Filtro per satellite. Limiti: non
+  ci sono manovre orbitali nel modello (la traiettoria non cambia) e i dati d'assetto non sono registrati, quindi i «cambi
+  d'assetto» sono i puntamenti impliciti nelle azioni.
 - `configs/`: `sentinel2.constellation.json`, `default.scenario.json`, `stream.scenario.json`, `requests.example.json`,
   `requests.scenario.json`, `README.md`.
 
