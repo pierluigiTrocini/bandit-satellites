@@ -74,6 +74,13 @@
   .badge { padding: 1px 8px; border-radius: 10px; font-weight: 600; color: #05212b; background: var(--accent); }
   .badge.downlink { background: var(--gs); } .badge.charge { background: var(--ok); }
   .sub { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  #notices { margin: 0 0 14px; }
+  #notices .note { border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; padding: 7px 10px; margin-top: 6px; font-size: 12px; line-height: 1.4; }
+  #notices .note.warning { border-left-color: #ffb454; background: rgba(255,180,84,.08); }
+  #notices .note.info { border-left-color: var(--muted); }
+  #notices .note b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
+  #notices .note.warning b { color: #ffb454; }
+  #satcard .plan { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.5; }
   @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px; } }
 </style>
 </head>
@@ -105,6 +112,7 @@
         <div class="body">
           <div class="act"><span id="pAct" class="badge">–</span><span id="pTgt" class="sub" style="margin:0"></span></div>
           <div class="sub" id="pRnd"></div>
+          <div class="plan" id="pPlan" hidden></div>
           <dl>
             <dt>Reward round</dt><dd id="pRew">–</dd>
             <dt>Reward cumulato</dt><dd id="pCum">–</dd>
@@ -124,7 +132,7 @@
       <button id="lvRestart" title="Riavvia l'episodio" aria-label="Riavvia">↻</button>
       <button id="lvLive" title="Segui l'istante più recente / torna al live">● LIVE</button>
       <button id="lvEdit" title="Modifica i JSON di costellazione e scenario: a ogni modifica valida la simulazione riparte">✎ Modifica</button>
-      <button id="lvImport" title="Importa i file JSON di costellazione e/o scenario (si possono scegliere insieme)">⇪ Importa</button>
+      <button id="lvImport" title="Importa i file JSON di costellazione, scenario e/o richieste (si possono scegliere insieme)">⇪ Importa</button>
       <input type="file" id="lvFiles" accept=".json,application/json" multiple hidden>
       <span id="lvInfo"></span>
     </div>
@@ -132,6 +140,7 @@
       <div class="cols">
         <label>Costellazione <small>constellation/v1</small><textarea id="cfgC" spellcheck="false" aria-label="JSON della costellazione"></textarea></label>
         <label>Scenario <small>scenario/v1</small><textarea id="cfgS" spellcheck="false" aria-label="JSON dello scenario"></textarea></label>
+        <label id="cfgRLbl" hidden>Richieste <small>requests/v1 (con targets.mode «file»)</small><textarea id="cfgR" spellcheck="false" aria-label="JSON delle richieste"></textarea></label>
       </div>
       <div id="cfgStat" role="status"></div>
     </div>
@@ -148,6 +157,7 @@
     <p class="hint">Rotella: zoom · Trascina: sposta/ruota · Doppio clic: vista iniziale · Clic su un satellite: selezionalo e segui</p>
   </div>
   <aside>
+    <div id="notices" hidden><h2>Avvisi del simulatore</h2><div id="noticeList"></div></div>
     <h2>Legenda</h2>
     <div class="legend">
       <div id="legSats"></div>
@@ -155,6 +165,8 @@
       <div><span class="dot" style="background:var(--ok)"></span>target ripreso</div>
       <div><span class="dot" style="border:1.5px solid var(--accent)"></span>finestra di accesso aperta</div>
       <div><span class="dot" style="border:2px solid #fff"></span>target assegnato al round</div>
+      <div id="legDyn" hidden><span class="dot" style="border:1.5px dashed var(--pend)"></span>richiesta non ancora nota al satellite selezionato (attende l'uplink)</div>
+      <div id="legPlan" hidden><span class="dot" style="border:2px solid #ffd166"></span>richiesta nel piano caricato sul satellite selezionato</div>
       <div><span style="color:var(--gs);margin-right:5px">▲</span>stazione a terra</div>
     </div>
     <details><summary>Limiti del modello</summary><p id="note"></p></details>
@@ -209,11 +221,16 @@ function drawLayers(c, s, d, P, o) {
     c.fillStyle = "rgba(255,200,220,.9)"; c.fillText(g.name, p[0] + r + 3, p[1]);
   });
   const open = d.sats[s.sel].open;           // finestre aperte: del satellite selezionato
+  const selSat = tr.satellites[s.sel], planned = d.sats[s.sel].planned;
   tr.targets.forEach((g, i) => {
+    if (!targetVisible(tr, i, s.t)) return;
     const p = P(g.lon, g.lat); if (!inside(p)) return;
-    const r = (1.4 + 1.8 * g.priority) * u;
+    const r = (1.4 + 1.8 * Math.min(g.priority, 1)) * u, alpha = .3 + .7 * Math.min(g.priority, 1);
+    const imaged = tr._imagedAt[i] <= s.t, pending = !imaged && !isKnown(tr, selSat, i, s.t);
     c.beginPath(); c.arc(p[0], p[1], r, 0, 6.2832);
-    c.fillStyle = tr._imagedAt[i] <= s.t ? "#5ee08a" : `rgba(255,180,84,${.3 + .7 * g.priority})`; c.fill();
+    if (pending) { c.setLineDash([2, 2]); c.strokeStyle = `rgba(255,180,84,${alpha})`; c.lineWidth = 1.2; c.stroke(); c.setLineDash([]); }
+    else { c.fillStyle = imaged ? "#5ee08a" : `rgba(255,180,84,${alpha})`; c.fill(); }
+    if (planned.has(i) && !imaged) { c.strokeStyle = "#ffd166"; c.lineWidth = 1.6; c.beginPath(); c.arc(p[0], p[1], r + 4.5 * u, 0, 6.2832); c.stroke(); }
     if (open.has(i)) { c.strokeStyle = "#4cc9f0"; c.lineWidth = 1.2; c.beginPath(); c.arc(p[0], p[1], r + 2.5 * u, 0, 6.2832); c.stroke(); }
   });
   if (s.fov) d.sats.forEach((ds, k) => {
@@ -532,6 +549,17 @@ function footprint(lat0, lon0, lam) {
   return pts;
 }
 
+// Richieste dinamiche: visibile da quando arriva fino alla scadenza (se scade senza essere ripresa).
+const targetVisible = (tr, i, t) => (tr.targets[i].arrival_s || 0) <= t && !(tr._removedAt[i] <= t && tr._removedReason[i] === "expired");
+// In modalità «plan» un satellite conosce una richiesta solo da quando l'ha ricevuta a un contatto; altrimenti dall'arrivo.
+const isKnown = (tr, sat, i, t) => tr.meta.mode !== "plan" || !("arrival_s" in tr.targets[i]) ? (tr.targets[i].arrival_s || 0) <= t
+  : (sat._known.get(i) ?? Infinity) <= t;
+function indexUplinks(tr, sat) {
+  sat._known = new Map();
+  sat.uplinks = sat.uplinks || [];
+  sat.uplinks.forEach(u => { (u.new_known || []).forEach(i => { if (!sat._known.has(i)) sat._known.set(i, u.t); }); });
+}
+
 const NO_ROUND = { t0: 0, t1: 0, action: "charge", target: null, reward: 0, cum_reward: 0, storage: 0, battery: 1, imaged: 0, alive: true };
 
 function deriveSat(tr, sat, t) {
@@ -542,7 +570,18 @@ function deriveSat(tr, sat, t) {
   const lam = footprintAngle(tr.meta.earth_radius_km, alt, sat.meta.image_min_elev_deg);
   const open = new Set(); let gs = null;
   for (const w of sat.windows) if (w.t0 <= t && t <= w.t1) { if (w.kind === "target") open.add(w.obj); else gs = w.obj; }
-  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), open, gs, round: sat.rounds.length ? roundAt(sat.rounds, t) : NO_ROUND };
+  // piano: ultimo uplink riuscito fino a t; richieste ancora da eseguire; prossimo contatto di uplink
+  let up = null; for (const u of sat.uplinks) { if (u.t <= t && u.ok) up = u; else if (u.t > t) break; }
+  const planned = new Set(); let nTasks = 0;
+  if (up && up.tasks) for (const k of up.tasks) if (k.type === "image" && k.t1 >= t) { planned.add(k.target); nTasks++; }
+  let nextUp = up && up.next_uplink > t ? up.next_uplink : null, inContact = false;   // il piano arriva fino al contatto successivo
+  if (tr.meta.mode === "plan") for (const w of sat.windows) {
+    if (w.kind !== "station" || !(tr.stations[w.obj].roles || []).includes("uplink")) continue;
+    if (w.t0 <= t && t <= w.t1) { inContact = true; break; }
+    if (w.t0 > t && (nextUp === null || w.t0 < nextUp)) nextUp = w.t0;
+  }
+  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), open, gs, round: sat.rounds.length ? roundAt(sat.rounds, t) : NO_ROUND,
+           up, planned, nTasks, nextUp, inContact };
 }
 const derive = (tr, t) => ({ sats: tr.satellites.map(s => deriveSat(tr, s, t)) });
 
@@ -572,6 +611,15 @@ function updateCard(d) {
   $("pAct").className = "badge " + r.action;
   $("pTgt").textContent = tgt ? "→ " + tgt : "";
   $("pRnd").textContent = `Round ${fmtT(r.t0)} – ${fmtT(r.t1)}`;
+  const pl = $("pPlan"), ds = d.sats[S.sel];
+  pl.hidden = tr.meta.mode !== "plan";
+  if (!pl.hidden) {
+    const known = [...sat._known.values()].filter(v => v <= S.t).length;
+    pl.innerHTML = `Piano caricato a ${ds.up ? fmtT(ds.up.t) : "–"} · ${ds.nTasks} immagini da fare` +
+      (ds.up && ds.up.horizon_end ? `, fino a ${fmtT(ds.up.horizon_end)}` : "") + `<br>` +
+      (ds.inContact ? "Contatto di uplink in corso" : ds.nextUp !== null ? `Prossimo uplink tra ${fmtT(ds.nextUp - S.t)}` : "Nessun uplink previsto nelle finestre calcolate") +
+      `<br>Richieste note a bordo: ${known}`;
+  }
   $("pRew").textContent = r.reward.toFixed(3);
   $("pCum").textContent = r.cum_reward.toFixed(3);
   $("pImg").textContent = r.imaged;
@@ -616,10 +664,18 @@ function updateCard(d) {
   head.addEventListener("dblclick", () => { S.cardOff = null; render(); });
 })();
 
+function renderNotices(list) {
+  $("notices").hidden = !list.length;
+  const esc = x => String(x).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  $("noticeList").innerHTML = list.map(n => `<div class="note ${n.level}"><b>${n.level === "warning" ? "Decisione del simulatore" : "Informazione"}</b>${esc(n.message)}</div>`).join("");
+}
+
 function fillMeta() {                       // «Episodio» del satellite selezionato
   const tr = S.trace; if (!tr) return;
   const m = tr.meta, sat = tr.satellites[S.sel], sm = sat.meta, lam = footprintAngle(m.earth_radius_km, sm.altitude_km, sm.image_min_elev_deg);
-  const rows = [["Seed", m.seed], ["Round", m.round_s + " s"], ["Target", m.n_targets], ["Quota", sm.altitude_km + " km"],
+  const rows = [["Seed", m.seed], ["Round", m.round_s + " s"], ["Target", m.n_targets],
+    ...(m.mode ? [["Modalità", m.mode === "plan" ? "piano al contatto" : m.mode === "round" ? "decisione a ogni round" : m.mode]] : []),
+    ...(m.comms ? [["Uplink", m.comms.uplink], ["Crosslink", m.comms.crosslinks]] : []), ["Quota", sm.altitude_km + " km"],
     ["Inclinazione", sm.inclination_deg + "°"], ["Elev. min. imaging", sm.image_min_elev_deg + "°"],
     ["Raggio campo visivo", (lam * m.earth_radius_km).toFixed(0) + " km"], ["Scarto traccia–sim", sm.track_vs_sim_max_km + " km"]];
   $("meta").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
@@ -630,6 +686,12 @@ function loadTrace(tr, live = false) {       // live: nuovo snapshot dello strea
   tr.satellites.forEach((s, i) => { s.color = s.color || PALETTE[i % PALETTE.length]; });
   tr._imagedAt = new Array(tr.targets.length).fill(Infinity);   // un target è ripreso se lo ha ripreso un satellite qualsiasi
   tr.satellites.forEach(s => s.imaged.forEach(e => { tr._imagedAt[e.target] = Math.min(tr._imagedAt[e.target], e.t); }));
+  tr._removedAt = new Array(tr.targets.length).fill(Infinity); tr._removedReason = new Array(tr.targets.length).fill("");
+  (tr.targets_removed || []).forEach(e => { tr._removedAt[e.idx] = e.t; tr._removedReason[e.idx] = e.reason; });
+  tr.satellites.forEach(s => indexUplinks(tr, s));
+  tr.targets_removed = tr.targets_removed || [];
+  $("legDyn").hidden = !(tr.meta.mode === "plan"); $("legPlan").hidden = tr.meta.mode !== "plan";
+  renderNotices(tr.meta.notices || []);
   const keep = live && S.trace && S.sel < tr.satellites.length;
   S.trace = tr; S.t = live ? tr.meta.t_end : 0;
   if (!keep) { S.sel = 0; S.cardOff = null; }
@@ -688,8 +750,12 @@ function stopLive() {
 
 function applyRound(d) {
   const tr = S.trace; if (!tr || !L.on) return;
+  (d.targets_added || []).forEach(g => { tr.targets.push(g); tr._imagedAt.push(Infinity); tr._removedAt.push(Infinity); tr._removedReason.push(""); });
+  (d.targets_removed || []).forEach(e => { tr.targets_removed.push(e); tr._removedAt[e.idx] = e.t; tr._removedReason[e.idx] = e.reason; });
+  if ((d.targets_added || []).length) tr.meta.n_targets = tr.targets.length;
   d.sats.forEach((sd, k) => {
     const s = tr.satellites[k];
+    (sd.uplinks || []).forEach(u => { s.uplinks.push(u); (u.new_known || []).forEach(i => { if (!s._known.has(i)) s._known.set(i, u.t); }); });
     for (const key of ["lat", "lon", "alt_km"]) for (const v of sd.track[key]) s.track[key].push(v);
     s.rounds.push(sd.round);
     sd.imaged.forEach(e => { s.imaged.push(e); tr._imagedAt[e.target] = Math.min(tr._imagedAt[e.target], e.t); });
@@ -721,26 +787,46 @@ async function fillEditor() {
   const s = cur && cur.scenario || await j("configs/default.scenario.json");
   if (!c || !s) return cfgStat("impossibile caricare la configurazione", true);
   $("cfgC").value = JSON.stringify(c, null, 2); $("cfgS").value = JSON.stringify(s, null, 2);
-  E.applied = norm([c, s]);
+  const fileMode = s.targets && s.targets.mode === "file";
+  $("cfgRLbl").hidden = !fileMode;
+  const r = fileMode ? (cur && cur.requests || await j("configs/requests.example.json")) : null;
+  $("cfgR").value = r ? JSON.stringify(r, null, 2) : "";
+  E.applied = norm([c, s, r]);
   cfgStat(cur ? "in uso: queste impostazioni (si applicano da sole a ogni modifica valida)"
               : "nessun file in uso (costellazione di prova): l'esempio mostrato parte alla prima modifica");
 }
+async function syncRequestsBox() {            // il terzo riquadro serve solo con targets.mode «file»
+  let s; try { s = JSON.parse($("cfgS").value); } catch (x) { return; }
+  const want = !!(s.targets && s.targets.mode === "file");
+  if (want === !$("cfgRLbl").hidden) return;
+  $("cfgRLbl").hidden = !want;
+  if (want && !$("cfgR").value.trim()) {
+    const ex = await fetch("configs/requests.example.json", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
+    if (ex) $("cfgR").value = JSON.stringify(ex, null, 2);
+  }
+}
 async function applyEditor() {
-  let c, s;
+  let c, s, q = null;
   try { c = JSON.parse($("cfgC").value); } catch (x) { return cfgStat("costellazione: JSON non valido (" + x.message + ")", true); }
   try { s = JSON.parse($("cfgS").value); } catch (x) { return cfgStat("scenario: JSON non valido (" + x.message + ")", true); }
-  if (norm([c, s]) === E.applied) return cfgStat("nessuna modifica rispetto alla simulazione in corso");
+  await syncRequestsBox();
+  if (!$("cfgRLbl").hidden) try { q = JSON.parse($("cfgR").value); } catch (x) { return cfgStat("richieste: JSON non valido (" + x.message + ")", true); }
+  if (norm([c, s, q]) === E.applied) return cfgStat("nessuna modifica rispetto alla simulazione in corso");
   const my = ++E.seq; cfgStat("applico…");
-  const r = await fetch(LIVE + "/scenario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ constellation: c, scenario: s }) })
+  const r = await fetch(LIVE + "/scenario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(q ? { constellation: c, scenario: s, requests: q } : { constellation: c, scenario: s }) })
     .then(async r => ({ ok: r.ok, j: await r.json() })).catch(() => ({ ok: false, j: { error: "server non raggiungibile" } }));
   if (my !== E.seq) return;                           // nel frattempo c'e' una modifica piu' recente
-  if (r.ok) { E.applied = norm([c, s]); cfgStat(`applicato: ${r.j.satellites} satelliti, ${r.j.stations} stazioni, seed ${r.j.seed}; simulazione riavviata`); }
+  if (r.ok) {
+    E.applied = norm([c, s, q]);
+    const w = (r.j.notices || []).filter(n => n.level === "warning").map(n => "⚠ " + n.message);
+    cfgStat(`applicato: ${r.j.satellites} satelliti, ${r.j.stations} stazioni, seed ${r.j.seed}; simulazione riavviata` + (w.length ? "\n" + w.join("\n") : ""));
+  }
   else cfgStat((r.j.errors || [r.j.error]).join("\n") + "\n(la simulazione in corso non è stata toccata)", true);
 }
-for (const id of ["cfgC", "cfgS"]) $(id).oninput = () => { clearTimeout(E.timer); E.timer = setTimeout(applyEditor, 900); };
+for (const id of ["cfgC", "cfgS", "cfgR"]) $(id).oninput = () => { clearTimeout(E.timer); E.timer = setTimeout(applyEditor, 900); };
 $("lvEdit").onclick = () => { const p = $("cfgPanel"); p.hidden = !p.hidden; if (!p.hidden) fillEditor(); };
 
-// Importazione: i file si riconoscono dal campo "schema" (constellation/v1 o scenario/v1); li valida il server.
+// Importazione: i file si riconoscono dal campo "schema" (constellation/v1, scenario/v1 o requests/v1); li valida il server.
 function showErr(lines) { const e = $("lvErr"); e.textContent = lines.join("\n"); e.hidden = !lines.length; }
 $("lvErr").onclick = () => showErr([]);
 $("lvImport").onclick = () => $("lvFiles").click();
@@ -749,7 +835,7 @@ $("lvFiles").onchange = async e => {
   for (const f of e.target.files) {
     try {
       const j = JSON.parse(await f.text()), kind = String(j.schema || "").split("/")[0];
-      if (kind !== "constellation" && kind !== "scenario") errs.push(`${f.name}: manca "schema" (constellation/v1 o scenario/v1)`);
+      if (!["constellation", "scenario", "requests"].includes(kind)) errs.push(`${f.name}: manca "schema" (constellation/v1, scenario/v1 o requests/v1)`);
       else if (kind in body) errs.push(`${f.name}: secondo file di tipo ${kind}`);
       else body[kind] = j;
     } catch (x) { errs.push(`${f.name}: JSON non valido (${x.message})`); }

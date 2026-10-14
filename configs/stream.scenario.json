@@ -1,0 +1,19 @@
+{
+  "schema": "scenario/v1",
+  "name": "Flusso di richieste Poisson, 24 ore",
+  "seed": 4,
+  "epoch": "2025-03-21T00:00:00Z",
+  "duration_hours": 24,
+  "round_s": 60,
+  "track_dt": 10,
+  "targets": {
+    "mode": "stream",
+    "initial_count": 20,
+    "arrival": { "type": "poisson", "rate_per_hour": 15 },
+    "spatial": { "type": "uniform" },
+    "priority": { "type": "uniform", "min": 0, "max": 1 },
+    "validity_hours": 12
+  },
+  "planning": { "horizon_max_s": 21600 },
+  "non_stationarity": null
+}

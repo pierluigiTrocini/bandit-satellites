@@ -1,9 +1,12 @@
 """Caricamento, validazione e traduzione in argomenti BSK-RL dei file di configurazione.
 
-Due file JSON distinti (schemi in configs/README.md):
-  constellation/v1  satelliti (orbita, strumento, risorse, downlink) e stazioni a terra
-  scenario/v1       episodio: seed, epoca, durata, round, target casuali; la non stazionarieta'
-                    e' riservata (chiave `non_stationarity`, per ora deve essere assente o null)
+File JSON (schemi in configs/README.md):
+  constellation/v1  satelliti (orbita, strumento, risorse, downlink), stazioni a terra con ruolo
+                    (uplink/downlink) e collegamenti (`comms`)
+  scenario/v1       episodio: seed, epoca, durata, round, richieste di imaging (target casuali fissi,
+                    flusso Poisson o file) e pianificazione a terra; la non stazionarieta' e' riservata
+                    (chiave `non_stationarity`, per ora deve essere assente o null)
+  requests/v1       elenco di richieste di imaging (id, target, priorita', arrivo, scadenza)
 
 Ogni chiave sconosciuta e' un errore (cosi' un refuso non viene ignorato in silenzio). Gli errori
 sono raccolti tutti insieme in `ConfigError.errors`, con il percorso del campo.
@@ -25,6 +28,23 @@ J2 = 1.08262668e-3
 SIDEREAL_YEAR_S = 365.2422 * 86400.0       # anno tropico: velocita' di precessione del Sole medio
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 MONTHS = "JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split()
+RID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+# Valori usati quando il file non li specifica. Sono neutri (nessuna ipotesi su un'operazione reale): gli
+# esempi in letteratura (invio del piano in ~25 s di contatto, ottimizzazione ~3 h prima del passaggio) sono
+# storici e non standard. Si cambiano qui, in un solo punto.
+UPLINK_DEFAULTS = dict(uplink="at_ground_contact", uplink_latency_s=0.0, min_uplink_contact_s=0.0)
+UPLINKS = ("continuous", "at_ground_contact")
+CROSSLINKS = ("none", "free")
+ROLES = ("uplink", "downlink")
+PLANNING_DEFAULTS = dict(horizon_max_s=21600.0)
+# flussi casuali indipendenti derivati dal seed dello scenario (chiave fissa per flusso: aggiungerne non sposta gli altri)
+STREAM_KEYS = dict(station_roles=1, arrivals=2, space=3, priority=4)
+
+
+def rng_stream(seed, name, sub=0):
+    """Generator indipendente dal seed e dal nome del flusso (mai np.random globale)."""
+    return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(STREAM_KEYS[name], sub)))
 
 
 class ConfigError(ValueError):
@@ -171,7 +191,7 @@ def load_constellation(src):
     data = _load(src)
     c = _Check()
     top = c.obj(data, "", {"schema", "name", "description", "satellites", "instrument", "resources", "downlink",
-                           "ground_stations"}, required=("satellites",))
+                           "ground_stations", "comms"}, required=("satellites",))
     if top.get("schema") not in (None, "constellation/v1"):
         c.err("schema", "atteso 'constellation/v1'")
     shared = {b: _read_block(top, b, ks, "", c)
@@ -215,6 +235,20 @@ def load_constellation(src):
             for k, (lo, hi, op) in spec.items():
                 if k in s[blk]:
                     s[blk][k] = c.num(s[blk], k, f"{path}.{blk}", lo=lo, hi=hi, lo_open=op)
+    cm = c.obj(top.get("comms", {}), "comms", {"crosslinks", "uplink", "uplink_latency_s", "min_uplink_contact_s"})
+    comms = {}
+    for key, allowed in (("uplink", UPLINKS), ("crosslinks", CROSSLINKS)):
+        if key in cm:
+            if cm[key] == "line_of_sight" and key == "crosslinks":
+                c.err("comms.crosslinks", "'line_of_sight' non ancora implementato (ammessi: none, free)")
+            elif cm[key] not in allowed:
+                c.err(f"comms.{key}", f"deve essere uno di: {', '.join(allowed)}")
+            else:
+                comms[key] = cm[key]
+    for key, hi in (("uplink_latency_s", 86400), ("min_uplink_contact_s", 3600)):
+        v = c.num(cm, key, "comms", lo=0, hi=hi)
+        if v is not None:
+            comms[key] = v
     stations, snames = [], set()
     gs = top.get("ground_stations", [])
     if not isinstance(gs, list):
@@ -222,7 +256,12 @@ def load_constellation(src):
         gs = []
     for i, g in enumerate(gs):
         path = f"ground_stations[{i}]"
-        g = c.obj(g, path, {"name", "lat", "lon", "elevation_m", "min_elevation_deg"}, required=("name", "lat", "lon"))
+        g = c.obj(g, path, {"name", "lat", "lon", "elevation_m", "min_elevation_deg", "roles"}, required=("name", "lat", "lon"))
+        roles = g.get("roles")
+        if roles is not None and (not isinstance(roles, list) or not roles or any(r not in ROLES for r in roles)
+                                  or len(set(roles)) != len(roles)):
+            c.err(f"{path}.roles", "deve essere una lista non vuota, senza ripetizioni, di: uplink, downlink")
+            roles = None
         name = g.get("name")
         if not isinstance(name, str) or not NAME.match(name):
             c.err(f"{path}.name", "deve essere un identificatore (lettere, cifre, _)")
@@ -232,12 +271,13 @@ def load_constellation(src):
         stations.append(dict(name=name, lat=c.num(g, "lat", path, lo=-90, hi=90, required=True),
                              lon=c.num(g, "lon", path, lo=-180, hi=180, required=True),
                              elevation_m=c.num(g, "elevation_m", path, lo=-500, hi=9000, default=0.0),
-                             min_elevation_deg=c.num(g, "min_elevation_deg", path, lo=0, hi=90, default=10.0)))
+                             min_elevation_deg=c.num(g, "min_elevation_deg", path, lo=0, hi=90, default=10.0),
+                             roles=list(roles) if roles else None))
     if not stations and "ground_stations" not in c.errors:
         c.err("ground_stations", "serve almeno una stazione a terra (senza downlink il buffer si riempie)")
     if c.errors:
         raise ConfigError(c.errors)
-    return dict(name=str(top.get("name", "costellazione")), satellites=out_sats, ground_stations=stations)
+    return dict(name=str(top.get("name", "costellazione")), satellites=out_sats, ground_stations=stations, comms=comms)
 
 
 def load_scenario(src=None):
@@ -245,7 +285,7 @@ def load_scenario(src=None):
     data = _load(src) if src is not None else {}
     c = _Check()
     top = c.obj(data, "", {"schema", "name", "description", "seed", "epoch", "duration_hours", "round_s", "track_dt",
-                           "targets", "non_stationarity"})
+                           "targets", "planning", "non_stationarity"})
     if top.get("schema") not in (None, "scenario/v1"):
         c.err("schema", "atteso 'scenario/v1'")
     seed = top.get("seed", 4)
@@ -257,16 +297,147 @@ def load_scenario(src=None):
     dt = c.num(top, "track_dt", "", lo=1, hi=600, default=10.0)
     if rnd and dt and abs(rnd / dt - round(rnd / dt)) > 1e-9:
         c.err("round_s", "deve essere multiplo di track_dt")
-    tg = c.obj(top.get("targets", {}), "targets", {"mode", "count"})
-    if tg.get("mode", "random") != "random":
-        c.err("targets.mode", "per ora e' ammesso solo 'random' (target uniformi sulla sfera)")
-    count = c.num(tg, "count", "targets", lo=1, hi=20000, default=600)
+    targets = _read_targets(top.get("targets", {}), c)
+    pl = c.obj(top.get("planning", {}), "planning", {"horizon_max_s"})
+    planning = dict(horizon_max_s=c.num(pl, "horizon_max_s", "planning", lo=60, hi=7 * 86400,
+                                        default=PLANNING_DEFAULTS["horizon_max_s"]))
     if top.get("non_stationarity") not in (None, {}):
         c.err("non_stationarity", "non ancora implementata: lasciare assente o null")
     if c.errors:
         raise ConfigError(c.errors)
     return dict(name=str(top.get("name", "scenario")), seed=seed, epoch=epoch, duration_hours=hours, round_s=rnd,
-                track_dt=dt, n_targets=int(count))
+                track_dt=dt, targets=targets, planning=planning,
+                n_targets=targets.get("count", 0))        # n_targets: compatibilita' con la modalita' random
+
+
+def _read_targets(tg, c):
+    """Blocco `targets` dello scenario: mode random (lista fissa), stream (Poisson) o file."""
+    keys = {"mode", "count", "initial_count", "arrival", "spatial", "priority", "validity_hours", "path"}
+    tg = c.obj(tg, "targets", keys)
+    mode = tg.get("mode", "random")
+    per_mode = dict(random={"mode", "count"},
+                    stream={"mode", "initial_count", "arrival", "spatial", "priority", "validity_hours"},
+                    file={"mode", "path"})
+    if mode not in per_mode:
+        c.err("targets.mode", "deve essere uno di: random, stream, file")
+        return dict(mode="random", count=600)
+    for k in tg:
+        if k in keys and k not in per_mode[mode]:
+            c.err(f"targets.{k}", f"non ammesso con mode '{mode}'")
+    if mode == "random":
+        return dict(mode=mode, count=int(c.num(tg, "count", "targets", lo=1, hi=20000, default=600)))
+    if mode == "file":
+        path = tg.get("path")
+        if path is not None and not isinstance(path, str):
+            c.err("targets.path", "deve essere una stringa")
+            path = None
+        return dict(mode=mode, path=path)
+    # stream
+    ar = c.obj(tg.get("arrival"), "targets.arrival", {"type", "rate_per_hour"}, required=("rate_per_hour",)) \
+        if tg.get("arrival") is not None else (c.err("targets.arrival", "campo obbligatorio per mode 'stream'") or {})
+    if ar.get("type", "poisson") != "poisson":
+        c.err("targets.arrival.type", "per ora e' ammesso solo 'poisson' (tasso costante per ora)")
+    rate = c.num(ar, "rate_per_hour", "targets.arrival", lo=0, hi=3600, lo_open=True)
+    sp = c.obj(tg.get("spatial", {}), "targets.spatial", {"type"})
+    if sp.get("type", "uniform") != "uniform":
+        c.err("targets.spatial.type", "per ora e' ammesso solo 'uniform' (uniforme sulla sfera)")
+    pr = c.obj(tg.get("priority", {}), "targets.priority", {"type", "min", "max"})
+    if pr.get("type", "uniform") != "uniform":
+        c.err("targets.priority.type", "per ora e' ammesso solo 'uniform'")
+    pmin = c.num(pr, "min", "targets.priority", lo=0, default=0.0)
+    pmax = c.num(pr, "max", "targets.priority", lo=0, lo_open=True, default=1.0)
+    if None not in (pmin, pmax) and pmin >= pmax:
+        c.err("targets.priority", "min deve essere minore di max")
+    val = c.num(tg, "validity_hours", "targets", lo=0, hi=24 * 365, lo_open=True)
+    return dict(mode=mode, initial_count=int(c.num(tg, "initial_count", "targets", lo=0, hi=20000, default=0)),
+                rate_per_hour=rate, priority=dict(min=pmin, max=pmax),
+                validity_s=None if val is None else val * 3600.0)
+
+
+def load_requests(src):
+    """requests/v1: elenco di richieste di imaging. Restituisce {name, requests: [...]} con ogni richiesta normalizzata
+    (id, lat, lon, name, elevation_m, priority, arrival_s, expires_s|None), ordinata per istante di arrivo."""
+    data = _load(src)
+    c = _Check()
+    top = c.obj(data, "", {"schema", "name", "description", "requests"}, required=("requests",))
+    if top.get("schema") not in (None, "requests/v1"):
+        c.err("schema", "atteso 'requests/v1'")
+    items = top.get("requests")
+    if not isinstance(items, list):
+        c.err("requests", "deve essere una lista")
+        items = []
+    if len(items) > 50000:
+        c.err("requests", "massimo 50000 richieste")
+        items = items[:50000]
+    out, ids = [], set()
+    for i, r in enumerate(items):
+        path = f"requests[{i}]"
+        r = c.obj(r, path, {"id", "target", "priority", "arrival_s", "expires_s", "validity_s"},
+                  required=("target", "priority"))
+        rid = r.get("id", f"R{i + 1:05d}")
+        if not isinstance(rid, str) or not RID.match(rid):
+            c.err(f"{path}.id", "deve essere una stringa di 1-64 caratteri tra lettere, cifre, _ . -")
+        elif rid in ids:
+            c.err(f"{path}.id", f"'{rid}' duplicato")
+        ids.add(rid)
+        t = c.obj(r.get("target"), f"{path}.target", {"lat", "lon", "name", "elevation_m"}, required=("lat", "lon"))
+        lat = c.num(t, "lat", f"{path}.target", lo=-90, hi=90, required=True)
+        lon = c.num(t, "lon", f"{path}.target", lo=-180, hi=180, required=True)
+        pr = c.num(r, "priority", path, lo=0, lo_open=True, required=True)
+        arr = c.num(r, "arrival_s", path, lo=0, default=0.0)
+        exp, val = c.num(r, "expires_s", path, lo=0), c.num(r, "validity_s", path, lo=0, lo_open=True)
+        if exp is not None and val is not None:
+            c.err(path, "indicare 'expires_s' oppure 'validity_s', non entrambi")
+        if val is not None and arr is not None:
+            exp = arr + val
+        if exp is not None and arr is not None and exp <= arr:
+            c.err(f"{path}.expires_s", "deve essere successivo a arrival_s")
+        out.append(dict(id=rid, lat=lat, lon=lon, name=str(t.get("name", rid)), elevation_m=c.num(t, "elevation_m", f"{path}.target", lo=-500, hi=9000, default=0.0),
+                        priority=pr, arrival_s=arr, expires_s=exp))
+    if c.errors:
+        raise ConfigError(c.errors)
+    out.sort(key=lambda x: x["arrival_s"])
+    return dict(name=str(top.get("name", "richieste")), requests=out)
+
+
+def fix_station_roles(stations, seed, notices):
+    """Garantisce almeno una stazione con ruolo downlink e una con ruolo uplink (decisione dell'utente).
+
+    Senza ruolo indicato una stazione fa entrambi. Se nessuna stazione ha un ruolo, ne sceglie una a caso (flusso
+    casuale derivato dal seed: stessa scelta a parita' di seed) e le assegna il ruolo mancante. Se le altre stazioni
+    coprono ancora l'altro ruolo la stazione *cambia* ruolo, altrimenti (una sola stazione) li ha entrambi.
+    Ogni decisione e' registrata in `notices`."""
+    st = [dict(s, roles=list(s["roles"]) if s["roles"] else list(ROLES)) for s in stations]
+    for sub, (need, other) in enumerate((("downlink", "uplink"), ("uplink", "downlink"))):
+        if any(need in s["roles"] for s in st):
+            continue
+        i = int(rng_stream(seed, "station_roles", sub).integers(len(st)))
+        others_cover = any(other in s["roles"] for j, s in enumerate(st) if j != i)
+        before = list(st[i]["roles"])
+        st[i]["roles"] = [need] if others_cover else sorted(set(before) | {need}, key=ROLES.index)
+        notices.append(dict(
+            level="warning", code="station_role_assigned",
+            message=(f"Nessuna stazione a terra con ruolo '{need}': la stazione '{st[i]['name']}' e' stata scelta a caso "
+                     f"(seed {seed}) e ora ha ruolo {' + '.join(st[i]['roles'])} (prima: {' + '.join(before)})."
+                     + ("" if others_cover else " E' l'unica stazione utilizzabile, quindi svolge entrambi i ruoli."))))
+    return st
+
+
+def resolve_comms(comms, n_sats, notices):
+    """Applica i default ai parametri di comunicazione mancanti e registra un avviso informativo."""
+    out = dict(comms or {})
+    used = []
+    for k, v in UPLINK_DEFAULTS.items():
+        if k not in out:
+            out[k] = v
+            used.append(f"comms.{k} = {v}")
+    if "crosslinks" not in out:
+        out["crosslinks"] = "free" if n_sats > 1 else "none"
+        used.append(f"comms.crosslinks = {out['crosslinks']}")
+    if used:
+        notices.append(dict(level="info", code="comms_defaults",
+                            message="Parametri non specificati nel file, usati i default: " + "; ".join(used) + "."))
+    return out
 
 
 def _load(src):
@@ -317,9 +488,15 @@ def build_plan(constellation, scenario):
             if k in dl:
                 a[key] = dl[k] * f
         sats.append(dict(name=s["name"], orbit=orb, sat_args=a))
-    stations = constellation["ground_stations"]
+    notices = []
+    comms = resolve_comms(constellation["comms"], len(sats), notices)
+    if any(g["roles"] is None for g in constellation["ground_stations"]):
+        notices.append(dict(level="info", code="roles_default", message=(
+            "Ruoli non specificati per alcune stazioni: svolgono sia uplink sia downlink.")))
+    stations = fix_station_roles(constellation["ground_stations"], scenario["seed"], notices)
     world = dict(utc_init=bsk_epoch(scenario["epoch"]))
     if stations:
         world["groundStationsData"] = [dict(name=g["name"], lat=g["lat"], long=g["lon"], elev=g["elevation_m"],
                                             gsMinimumElevation=np.radians(g["min_elevation_deg"])) for g in stations]
-    return dict(name=constellation["name"], scenario=scenario, sats=sats, world_args=world, stations=stations)
+    return dict(name=constellation["name"], scenario=scenario, sats=sats, world_args=world, stations=stations,
+                comms=comms, notices=notices)

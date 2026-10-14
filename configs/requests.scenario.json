@@ -1,0 +1,7 @@
+{
+  "schema": "scenario/v1",
+  "name": "Richieste da file (esempio)",
+  "seed": 4,
+  "duration_hours": 24,
+  "targets": { "mode": "file", "path": "configs/requests.example.json" }
+}

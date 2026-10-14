@@ -1,0 +1,12 @@
+{
+  "schema": "requests/v1",
+  "name": "Esempio: cinque richieste su città italiane",
+  "_note": "Coordinate approssimative e priorita' di esempio. arrival_s = istante di arrivo a terra [s dall'inizio dell'episodio]; la scadenza e' facoltativa (expires_s assoluta oppure validity_s dopo l'arrivo).",
+  "requests": [
+    { "id": "TORINO",  "target": { "lat": 45.07, "lon": 7.69,  "name": "Torino" },  "priority": 0.9, "arrival_s": 0,     "validity_s": 43200 },
+    { "id": "MILANO",  "target": { "lat": 45.46, "lon": 9.19,  "name": "Milano" },  "priority": 0.7, "arrival_s": 1800,  "expires_s": 50000 },
+    { "id": "ROMA",    "target": { "lat": 41.90, "lon": 12.50, "name": "Roma" },    "priority": 1.0, "arrival_s": 7200 },
+    { "id": "NAPOLI",  "target": { "lat": 40.85, "lon": 14.27, "name": "Napoli" },  "priority": 0.5, "arrival_s": 10800, "validity_s": 21600 },
+    { "id": "PALERMO", "target": { "lat": 38.12, "lon": 13.36, "name": "Palermo" }, "priority": 0.6, "arrival_s": 21600 }
+  ]
+}

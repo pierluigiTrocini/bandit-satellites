@@ -19,6 +19,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--constellation", help="file JSON della costellazione (configs/); sostituisce --sats/--planes/...")
     ap.add_argument("--scenario", help="file JSON dello scenario (default: valori di config_io.load_scenario)")
+    ap.add_argument("--requests", help="file JSON delle richieste (requests/v1), per targets.mode 'file'")
+    ap.add_argument("--export-requests", help="salva le richieste arrivate nell'episodio in questo file (requests/v1)")
     ap.add_argument("--seed", type=int, default=None, help="default: 4, o il seed dello scenario")
     ap.add_argument("--orbits", type=float, default=3.0)
     ap.add_argument("--targets", type=int, default=600)
@@ -33,10 +35,17 @@ def main():
 
     if a.constellation:
         try:
-            plan = config_io.build_plan(config_io.load_constellation(a.constellation), config_io.load_scenario(a.scenario))
+            scenario = config_io.load_scenario(a.scenario)
+            requests = None
+            if scenario["targets"]["mode"] == "file":
+                path = a.requests or scenario["targets"].get("path")
+                if not path:
+                    raise config_io.ConfigError(["targets.mode e' 'file': indicare --requests oppure targets.path"])
+                requests = config_io.load_requests(path)["requests"]
+            plan = config_io.build_plan(config_io.load_constellation(a.constellation), scenario)
         except config_io.ConfigError as e:
             ap.error("configurazione non valida:\n  " + "\n  ".join(e.errors))
-        sim = Sim(plan=plan)
+        sim = Sim(plan=plan, requests=requests)
         a.sats = len(plan["sats"])
     else:
         sim = Sim(sats=a.sats, planes=a.planes, altitude=a.altitude, inc=a.inc, targets=a.targets,
@@ -46,6 +55,9 @@ def main():
     while not sim.done:
         sim.step()
     trace = sim.trace
+    if a.export_requests:
+        Path(a.export_requests).write_text(json.dumps(sim.requests_export(), indent=1))
+        print(f"richieste esportate: {a.export_requests}")
     sim.env.close()
 
     out = Path(a.out)

@@ -5,10 +5,12 @@ Solo libreria standard. Endpoint:
                   per ogni round (delta + stato) e `status` a fine episodio
   GET  /status    stato corrente (JSON)
   GET  /trace.json  traccia accumulata finora
-  POST /scenario  {"constellation": {...}, "scenario": {...}}: valida i due file di configurazione
-                  (configs/README.md) e riavvia l'episodio con essi; 400 con la lista degli errori
-                  se non sono validi. Un file omesso resta quello in uso.
-  GET  /config    configurazione in uso (JSON dei due file, se l'episodio viene da file)
+  POST /scenario  {"constellation": {...}, "scenario": {...}, "requests": {...}}: valida i file di
+                  configurazione (configs/README.md) e riavvia l'episodio con essi; 400 con la lista
+                  degli errori se non sono validi. Un file omesso resta quello in uso; `requests` serve
+                  solo con `targets.mode: "file"`. La risposta include gli avvisi (`notices`) del simulatore.
+  GET  /config    configurazione in uso (JSON dei file, se l'episodio viene da file)
+  GET  /requests.json  richieste arrivate finora in formato requests/v1 (si possono rileggere con mode "file")
   POST /control   {"action": "pause" | "resume" | "restart" (con "seed" opzionale)}
                   {"action": "speed", "speed": <secondi simulati per secondo reale> | "max"}
 
@@ -92,21 +94,34 @@ class Hub:
         simulazione, come per il riavvio. Solleva ConfigError se i file non sono validi."""
         if not isinstance(msg, dict):
             raise config_io.ConfigError(["il corpo deve essere un oggetto con 'constellation' e/o 'scenario'"])
-        unknown = [k for k in msg if k not in ("constellation", "scenario")]
+        unknown = [k for k in msg if k not in ("constellation", "scenario", "requests")]
         if unknown:
             raise config_io.ConfigError([f"chiave sconosciuta: {k}" for k in unknown])
         with self.cond:
             cur = dict(self.config or {})
         cons, scen = msg.get("constellation", cur.get("constellation")), msg.get("scenario", cur.get("scenario"))
+        reqs = msg.get("requests", cur.get("requests"))
         if cons is None:
             raise config_io.ConfigError(["manca il file di costellazione (constellation/v1)"])
-        plan = config_io.build_plan(config_io.load_constellation(cons), config_io.load_scenario(scen))
-        sim = Sim(plan=plan)
-        seed = plan["scenario"]["seed"]
+        scenario = config_io.load_scenario(scen)
+        mode = scenario["targets"]["mode"]
+        requests = None
+        if mode == "file":
+            if reqs is None:
+                raise config_io.ConfigError(["targets.mode e' 'file' ma manca l'elenco delle richieste (requests/v1)"])
+            requests = config_io.load_requests(reqs)["requests"]
+        elif "requests" in msg:
+            raise config_io.ConfigError(["e' stato inviato un file di richieste ma lo scenario non ha targets.mode 'file'"])
+        else:
+            reqs = None
+        plan = config_io.build_plan(config_io.load_constellation(cons), scenario)
+        sim = Sim(plan=plan, requests=requests)
+        seed = scenario["seed"]
         with self.cond:                            # si conservano i file grezzi, rileggibili da load_*
-            self.pending = (sim, dict(constellation=cons, scenario=scen), seed)
+            self.pending = (sim, dict(constellation=cons, scenario=scen, **({"requests": reqs} if reqs is not None else {})), seed)
             self.cond.notify_all()
-        return dict(ok=True, satellites=len(plan["sats"]), stations=len(plan["stations"]), seed=seed)
+        return dict(ok=True, satellites=len(plan["sats"]), stations=len(plan["stations"]), seed=seed,
+                    notices=plan["notices"])
 
     def run(self):
         anchor = None                      # (istante reale, istante simulato, velocita') per il ritmo
@@ -182,6 +197,9 @@ def make_handler(hub):
             if self.path.startswith("/config"):
                 with hub.cond:
                     return self._send(200, json.dumps(hub.config))
+            if self.path.startswith("/requests.json"):
+                with hub.cond:
+                    return self._send(200, json.dumps(hub.sim.requests_export()))
             if self.path.startswith("/trace.json"):
                 with hub.cond:
                     return self._send(200, json.dumps(hub.sim.trace))
@@ -231,6 +249,7 @@ def main():
     ap.add_argument("--port", type=int, default=8081)
     ap.add_argument("--constellation", help="file JSON della costellazione (sostituisce --sats/--planes/--altitude/--inc)")
     ap.add_argument("--scenario", help="file JSON dello scenario (durata, round, target, seed, epoca)")
+    ap.add_argument("--requests", help="file JSON delle richieste (requests/v1), per targets.mode 'file'")
     ap.add_argument("--seed", type=int, default=None, help="default: 4, o il seed dello scenario")
     ap.add_argument("--sats", type=int, default=3)
     ap.add_argument("--planes", type=int, default=None)
@@ -249,11 +268,18 @@ def main():
         try:
             cfg = dict(constellation=config_io._load(a.constellation),
                        scenario=config_io._load(a.scenario) if a.scenario else None)
-            plan = config_io.build_plan(config_io.load_constellation(cfg["constellation"]),
-                                        config_io.load_scenario(cfg["scenario"]))
+            scenario = config_io.load_scenario(cfg["scenario"])
+            requests = None
+            if scenario["targets"]["mode"] == "file":
+                path = a.requests or scenario["targets"].get("path")
+                if not path:
+                    raise config_io.ConfigError(["targets.mode e' 'file': indicare --requests oppure targets.path"])
+                cfg["requests"] = config_io._load(path)
+                requests = config_io.load_requests(cfg["requests"])["requests"]
+            plan = config_io.build_plan(config_io.load_constellation(cfg["constellation"]), scenario)
         except config_io.ConfigError as e:
             ap.error("configurazione non valida:\n  " + "\n  ".join(e.errors))
-        sim = Sim(plan=plan)
+        sim = Sim(plan=plan, requests=requests)
         a.sats = len(plan["sats"])
         if a.seed is None:
             a.seed = plan["scenario"]["seed"]

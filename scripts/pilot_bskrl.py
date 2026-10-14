@@ -23,18 +23,21 @@ K_AHEAD = 8  # numero di target "prossimi" esposti come azioni Image
 ORBIT = 5700.0  # [s] circa un'orbita LEO
 
 
-def make_sat(variable_interval: bool, name: str = "sat_1", sat_args: dict | None = None) -> sats.ImagingSatellite:
+def make_sat(variable_interval: bool, name: str = "sat_1", sat_args: dict | None = None,
+             observe_opportunities: bool = True) -> sats.ImagingSatellite:
+    """observe_opportunities=False: modalita' dei file di configurazione. L'osservazione non include i prossimi target
+    e BSK-RL non calcola alcuna finestra (le calcola `ground.WindowEngine`, vedi li' il motivo)."""
     class PilotSat(sats.ImagingSatellite):
         observation_spec = [
             obs.SatProperties(
                 dict(prop="storage_level_fraction"),
                 dict(prop="battery_charge_fraction"),
             ),
-            obs.OpportunityProperties(
+            *([obs.OpportunityProperties(
                 dict(prop="priority"),
                 dict(prop="opportunity_close", norm=ORBIT),
                 n_ahead_observe=K_AHEAD,
-            ),
+            )] if observe_opportunities else []),
             obs.Time(),
         ]
         # indici: 0..K-1 Image, K Downlink, K+1 Charge
@@ -46,7 +49,8 @@ def make_sat(variable_interval: bool, name: str = "sat_1", sat_args: dict | None
         dyn_type = dyn.FullFeaturedDynModel
         fsw_type = fsw.ImagingFSWModel
 
-    return PilotSat(name, sat_args=sat_args, variable_interval=variable_interval)
+    extra = {} if observe_opportunities else dict(initial_generation_duration=0, max_generation_duration_beyond_initial=0)
+    return PilotSat(name, sat_args=sat_args, variable_interval=variable_interval, **extra)
 
 
 def make_env(variable_interval: bool, n_targets: int, time_limit: float, step: float):
