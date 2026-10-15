@@ -641,6 +641,10 @@ dell'utente prima di ogni commit**.
 - `scripts/sim_server.py`: stream live, `POST /scenario` (anche `requests`), `GET /config`, `GET /requests.json`.
 - Viewer: importazione e editor dei file (anche richieste), riquadro avvisi, richieste dinamiche (in attesa di uplink, nel piano,
   scadute), dati di piano nel riquadro satellite.
+- Viewer, **copertura dati** (toggle «Copertura dati», 2D e 3D): cerchio tratteggiato dello stesso colore del satellite = regione da cui una
+  stazione di **downlink** vede il satellite, con l'elevazione minima **più bassa** fra le stazioni di downlink (caso più ampio, indicata in
+  legenda; Sentinel-2: 5°, raggio ~2506 km). Distinto dal «campo visivo» (regione di imaging, molto più piccolo) e dai marcatori fissi
+  (alone 9 px, anello di inseguimento 13 px). Il cerchio che racchiude un polo si disegna come polilinea aperta con longitudini continue.
 - Viewer, **log eventi** (pulsante «☰ Log eventi» sotto la mappa, a comparsa): derivato lato viewer dai dati della traccia, fino
   all'istante del cursore. Scheda *Satelliti*: puntamento/acquisizione, immagini acquisite e mancate, downlink, ricarica,
   contatti, uplink ricevuti; scheda *Stazioni a terra*: contatti, invio piano con **lista dei comandi a comparsa**, ricezione dati

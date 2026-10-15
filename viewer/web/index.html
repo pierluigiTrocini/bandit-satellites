@@ -82,7 +82,8 @@
   #logList { max-height: 230px; overflow-y: auto; padding: 4px 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
   #logList .lg { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px dashed rgba(255,255,255,.05); align-items: baseline; }
   #logList .lg time { color: var(--muted); flex: none; }
-  #logList .lg .dot { flex: none; }
+  #logList .lg .sn { flex: none; min-width: 54px; font-weight: 700; }
+  #logList .lg .sn.gs { color: var(--muted); font-weight: 500; }
   #logList .lg .k { flex: none; min-width: 74px; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   #logList .k.image { color: var(--accent); } #logList .k.downlink, #logList .k.rx { color: var(--gs); } #logList .k.uplink, #logList .k.tx { color: #ffd166; }
   #logList .k.charge { color: var(--ok); } #logList .k.contact { color: var(--muted); } #logList .k.fail { color: #ff7b7b; } #logList .k.req { color: #c9a7ff; }
@@ -114,6 +115,7 @@
   </div>
   <label id="satLbl" hidden>Satellite <select id="satSel" aria-label="Satellite"></select></label>
   <label><input type="checkbox" id="fov" checked> Campo visivo</label>
+  <label title="Linea tratteggiata: regione da cui una stazione di downlink vede il satellite (elevazione minima più bassa fra le stazioni di downlink)"><input type="checkbox" id="cover" checked> Copertura dati</label>
   <label><input type="checkbox" id="track" checked> Traccia</label>
   <label title="Centra la vista sul satellite selezionato (anche con un clic sul satellite)"><input type="checkbox" id="follow"> Segui satellite</label>
   <label title="Mostra il riquadro con i dati del satellite seguito"><input type="checkbox" id="info" checked> Info satellite</label>
@@ -195,6 +197,7 @@
       <div><span class="dot" style="background:var(--ok)"></span>target ripreso</div>
       <div><span class="dot" style="border:1.5px solid var(--accent)"></span>finestra di accesso aperta</div>
       <div><span class="dot" style="border:2px solid #fff"></span>target assegnato al round</div>
+      <div><span class="dot" style="border:1.5px dashed #fff"></span><span id="legCov">copertura dati (tratteggio, colore del satellite)</span></div>
       <div id="legDyn" hidden><span class="dot" style="border:1.5px dashed var(--pend)"></span>richiesta non ancora nota al satellite selezionato (attende l'uplink)</div>
       <div id="legPlan" hidden><span class="dot" style="border:2px solid #ffd166"></span>richiesta nel piano caricato sul satellite selezionato</div>
       <div><span style="color:var(--gs);margin-right:5px">▲</span>stazione a terra</div>
@@ -207,7 +210,7 @@
 "use strict";
 const D2R = Math.PI / 180;
 const $ = id => document.getElementById(id);
-const S = { trace: null, t: 0, playing: false, speed: 300, view: "2d", earth: "image", fov: true, track: true,
+const S = { trace: null, t: 0, playing: false, speed: 300, view: "2d", earth: "image", fov: true, cover: true, track: true,
             follow: false, info: true, cardOff: null, sel: 0 };
 const assets = { earth: null, coast: null };
 const PALETTE = ["#ffffff", "#ff7ac6", "#b8f35a", "#ffd166", "#c77dff", "#7fffd4"];
@@ -270,6 +273,12 @@ function drawLayers(c, s, d, P, o) {
       pts.forEach((p, j) => j ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); c.fill();
     } else { let pen = false; pts.forEach(p => { if (!p) { pen = false; return; } pen ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); pen = true; }); }
     c.stroke();
+  });
+  if (s.cover) d.sats.forEach((ds, k) => {         // copertura dati: tratteggio dello stesso colore del satellite
+    const col = tr.satellites[k].color; let pen = false;
+    c.strokeStyle = rgba(col, k === s.sel ? .95 : .75); c.lineWidth = 1.4; c.setLineDash([7 * u, 5 * u]); c.beginPath();
+    for (const q of ds.cov) { const p = P(q[0], q[1]); if (!p) { pen = false; continue; } pen ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); pen = true; }
+    c.stroke(); c.setLineDash([]);
   });
   d.sats.forEach((ds, k) => {
     const sat = tr.satellites[k], col = sat.color, r = ds.round;
@@ -590,6 +599,25 @@ function indexUplinks(tr, sat) {
   sat.uplinks.forEach(u => { (u.new_known || []).forEach(i => { if (!sat._known.has(i)) sat._known.set(i, u.t); }); });
 }
 
+// Elevazione minima con cui una stazione di downlink vede il satellite: la più bassa fra le stazioni di downlink (caso più ampio).
+function coverElev(tr) {
+  const e = tr.stations.filter(g => (g.roles || ["uplink", "downlink"]).includes("downlink")).map(g => g.min_elev_deg).filter(v => v !== undefined);
+  return e.length ? Math.min(...e) : (tr.meta.gs_min_elev_deg ?? 10);
+}
+// Cerchio di raggio angolare lam attorno a (lat0, lon0) come polilinea aperta di 121 punti con le longitudini «srotolate» (continue):
+// se il cerchio racchiude un polo l'ultimo punto è il primo +360°, e le copie del mondo della vista 2D si raccordano.
+function coverageRing(lat0, lon0, lam) {
+  const p0 = lat0 * D2R, l0 = lon0 * D2R, pts = []; let prev = null;
+  for (let k = 0; k <= 120; k++) {
+    const b = k / 120 * 2 * Math.PI;
+    const p = Math.asin(Math.sin(p0) * Math.cos(lam) + Math.cos(p0) * Math.sin(lam) * Math.cos(b));
+    let l = l0 + Math.atan2(Math.sin(b) * Math.sin(lam) * Math.cos(p0), Math.cos(lam) - Math.sin(p0) * Math.sin(p));
+    if (prev !== null) l += 2 * Math.PI * Math.round((prev - l) / (2 * Math.PI));
+    prev = l; pts.push([l / D2R, p / D2R]);
+  }
+  return pts;
+}
+
 const NO_ROUND = { t0: 0, t1: 0, action: "charge", target: null, reward: 0, cum_reward: 0, storage: 0, battery: 1, imaged: 0, alive: true };
 
 function deriveSat(tr, sat, t) {
@@ -610,7 +638,8 @@ function deriveSat(tr, sat, t) {
     if (w.t0 <= t && t <= w.t1) { inContact = true; break; }
     if (w.t0 > t && (nextUp === null || w.t0 < nextUp)) nextUp = w.t0;
   }
-  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), open, gs, round: sat.rounds.length ? roundAt(sat.rounds, t) : NO_ROUND,
+  const cov = S.cover ? coverageRing(lat, lon, footprintAngle(tr.meta.earth_radius_km, alt, coverElev(tr))) : [];
+  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), cov, open, gs, round: sat.rounds.length ? roundAt(sat.rounds, t) : NO_ROUND,
            up, planned, nTasks, nextUp, inContact };
 }
 const derive = (tr, t) => ({ sats: tr.satellites.map(s => deriveSat(tr, s, t)) });
@@ -699,7 +728,7 @@ function updateLog(force) {
   $("logCount").textContent = `${list.length} eventi fino a ${fmtT(S.t)}` + (list.length > shown.length ? ` · ultimi ${shown.length}` : "");
   $("logList").innerHTML = shown.length ? shown.map(e => {
     const sat = e.sat >= 0 ? tr.satellites[e.sat] : null, id = `${e.scope}|${e.sat}|${e.t}|${e.kind}|${e.text.slice(0, 30)}`;
-    const lead = `<time>${fmtT(e.t)}</time>${sat ? `<span class="dot" style="background:${sat.color}" title="${escHtml(sat.name)}"></span>` : `<span class="dot" style="background:transparent"></span>`}<span class="k ${e.kind}">${{ image: "Image", downlink: "Downlink", uplink: "Uplink", charge: "Charge", contact: "Contatto", fail: "Esito", rx: "Ricezione", tx: "Invio", req: "Richiesta" }[e.kind]}</span>`;
+    const lead = `<time>${fmtT(e.t)}</time>${sat ? `<span class="sn" style="color:${sat.color}">${escHtml(sat.name)}</span>` : `<span class="sn gs">Terra</span>`}<span class="k ${e.kind}">${{ image: "Image", downlink: "Downlink", uplink: "Uplink", charge: "Charge", contact: "Contatto", fail: "Esito", rx: "Ricezione", tx: "Invio", req: "Richiesta" }[e.kind]}</span>`;
     const body = e.detail && e.detail.length
       ? `<details data-k="${escHtml(id)}"${LOG.keys.has(id) ? " open" : ""}><summary>${escHtml(e.text)}</summary><ul>${e.detail.map(c => `<li>${escHtml(c)}</li>`).join("")}</ul></details>`
       : `<span>${escHtml(e.text)}</span>`;
@@ -823,6 +852,7 @@ function loadTrace(tr, live = false) {       // live: nuovo snapshot dello strea
   (tr.targets_removed || []).forEach(e => { tr._removedAt[e.idx] = e.t; tr._removedReason[e.idx] = e.reason; });
   tr.satellites.forEach(s => indexUplinks(tr, s));
   tr.targets_removed = tr.targets_removed || [];
+  $("legCov").textContent = `copertura dati: da qui una stazione di downlink vede il satellite (elev. ≥ ${coverElev(tr)}°)`;
   $("legDyn").hidden = !(tr.meta.mode === "plan"); $("legPlan").hidden = tr.meta.mode !== "plan";
   renderNotices(tr.meta.notices || []);
   const keep = live && S.trace && S.sel < tr.satellites.length;
@@ -1048,6 +1078,7 @@ function setInfo(on) { S.info = on; $("info").checked = on; render(); }
 $("info").onchange = e => setInfo(e.target.checked);
 $("infoClose").onclick = () => setInfo(false);
 $("fov").onchange = e => { S.fov = e.target.checked; render(); };
+$("cover").onchange = e => { S.cover = e.target.checked; render(); };
 $("track").onchange = e => { S.track = e.target.checked; render(); };
 document.querySelectorAll("#viewSeg button").forEach(b => b.onclick = () => setView(b.dataset.v));
 document.querySelectorAll("#earthSeg button").forEach(b => b.onclick = () => {
