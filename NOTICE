@@ -1,0 +1,24 @@
+Third-party software and data
+=============================
+
+This repository's own code is released under the MIT License (see LICENSE).
+It uses the following third-party components. None of their source code is
+copied into this repository: they are installed as dependencies (versions
+pinned in pyproject.toml / uv.lock).
+
+- BSK-RL 1.3.7 — MIT License, Copyright (c) 2023 AVSLab.
+  https://github.com/AVSLab/bsk_rl
+- Basilisk (package "bsk") 2.12.0 — ISC License, Copyright (c) 2016,
+  Autonomous Vehicle Systems Lab, University of Colorado at Boulder.
+  https://github.com/AVSLab/basilisk
+
+Included data
+-------------
+
+- viewer/web/static/earth.jpg and viewer/web/static/coast.json are generated
+  by scripts/build_basemap.py from Natural Earth (public domain):
+  "Natural Earth I with Shaded Relief, Water, and Drainage" (50m) and
+  "Land" (50m). Made with Natural Earth. https://www.naturalearthdata.com
+
+This project is not affiliated with, nor endorsed by, AVS Lab or the authors
+of BSK-RL / Basilisk.
