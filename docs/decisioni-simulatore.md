@@ -668,3 +668,17 @@ dell'utente prima di ogni commit**.
 - 2026-10-14 (implementazione B): decisioni 9.1-9.6 prese dall'utente e implementate (sezione 5.9); spike dei target dinamici
   eseguito (5.7); scoperto e aggirato il difetto di BSK-RL sulle finestre di stazione (sezione 12). Il punto 3 (agile) resta
   in attesa e la costellazione non è stata scelta.
+- 2026-10-15 (verifica incoerenze segnalate): (1) «● Live» assente: `GET /status` leggeva `env.simulator` mentre `reset()` lo
+  ricostruiva (AttributeError → connessione chiusa); ora `Sim.t_seen` è una copia aggiornata a fine reset/step. Il viewer
+  riprova all'avvio e, se il server non risponde, controlla ogni 3 s e aggiunge «● Live» senza ricaricare. (2) «Immagine con
+  buffer pieno»: nessuna immagine riuscita con buffer pieno in 5 scenari (legacy, stream, buffer ridotto a 5 immagini);
+  l'apparenza veniva dal riquadro satellite, che mostrava lo stato di fine round durante il round: l'immagine che riempie
+  l'ultimo slot appariva «buffer pieno» prima di diventare verde. Ora il riquadro usa lo stato dell'ultimo round concluso.
+  Osservato, NON corretto: il piano a terra non conosce la memoria, quindi a buffer pieno i comandi `Image` restano nel
+  piano e falliscono (round sprecati); da discutere insieme all'eseguibilità dei bracci.
+- 2026-10-15 (explainability): sulla mappa (2D e 3D) etichette di stato per satellite, attivabili da «Etichette di stato»
+  (default acceso): «punta <target>», «✔ acquisito», «✖ non acquisito (motivo)» e, per i contatti con le stazioni, «⇄ <stazione>:
+  downlink in corso / uplink piano caricato / uplink fallito / contatto concluso». Gli esiti restano scritti 300 s simulati
+  (contatti 180 s). Il motivo di un mancato è dedotto solo dalla traccia: «memoria piena» se il buffer era pieno prima del
+  tentativo, altrimenti «finestra chiusa prima del puntamento» (stessa regola nel log). Linea tratteggiata sottile satellite–stazione
+  durante ogni contatto. Il log eventi è aperto di default.

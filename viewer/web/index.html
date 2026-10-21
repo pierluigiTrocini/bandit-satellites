@@ -114,6 +114,7 @@
     <button data-e="outline">Contorni</button>
   </div>
   <label id="satLbl" hidden>Satellite <select id="satSel" aria-label="Satellite"></select></label>
+  <label title="Scrive sulla mappa che cosa sta facendo ogni satellite: puntamento di un target (e se è stato acquisito o no) e contatti con le stazioni"><input type="checkbox" id="labels" checked> Etichette di stato</label>
   <label><input type="checkbox" id="fov" checked> Campo visivo</label>
   <label title="Linea tratteggiata: regione da cui una stazione di downlink vede il satellite (elevazione minima più bassa fra le stazioni di downlink)"><input type="checkbox" id="cover" checked> Copertura dati</label>
   <label><input type="checkbox" id="track" checked> Traccia</label>
@@ -174,8 +175,8 @@
     </div>
     <p class="hint">Rotella: zoom · Trascina: sposta/ruota · Doppio clic: vista iniziale · Clic su un satellite: selezionalo e segui</p>
     <div id="logWrap">
-      <button id="logToggle" aria-expanded="false" aria-controls="logPanel" title="Mostra/nascondi il log degli eventi fino all'istante corrente">☰ Log eventi</button>
-      <div id="logPanel" hidden>
+      <button id="logToggle" aria-expanded="true" aria-controls="logPanel" title="Mostra/nascondi il log degli eventi fino all'istante corrente">☰ Log eventi</button>
+      <div id="logPanel">
         <div id="logHead">
           <div class="seg" id="logTabs" aria-label="Tipo di log"><button data-t="sat" class="on">Satelliti</button><button data-t="gs">Stazioni a terra</button></div>
           <label>Satellite <select id="logSat" aria-label="Filtra per satellite"></select></label>
@@ -197,6 +198,7 @@
       <div><span class="dot" style="background:var(--ok)"></span>target ripreso</div>
       <div><span class="dot" style="border:1.5px solid var(--accent)"></span>finestra di accesso aperta</div>
       <div><span class="dot" style="border:2px solid #fff"></span>target assegnato al round</div>
+      <div><span style="color:var(--ok);margin-right:5px">✔</span>etichette di stato: acquisito (verde), <span style="color:#ff6b6b">✖ non acquisito</span> (rosso, con il motivo), contatti con le stazioni (rosa)</div>
       <div><span class="dot" style="border:1.5px dashed #fff"></span><span id="legCov">copertura dati (tratteggio, colore del satellite)</span></div>
       <div id="legDyn" hidden><span class="dot" style="border:1.5px dashed var(--pend)"></span>richiesta non ancora nota al satellite selezionato (attende l'uplink)</div>
       <div id="legPlan" hidden><span class="dot" style="border:2px solid #ffd166"></span>richiesta nel piano caricato sul satellite selezionato</div>
@@ -210,7 +212,7 @@
 "use strict";
 const D2R = Math.PI / 180;
 const $ = id => document.getElementById(id);
-const S = { trace: null, t: 0, playing: false, speed: 300, view: "2d", earth: "image", fov: true, cover: true, track: true,
+const S = { trace: null, t: 0, playing: false, speed: 300, view: "2d", earth: "image", fov: true, cover: true, labels: true, track: true,
             follow: false, info: true, cardOff: null, sel: 0 };
 const assets = { earth: null, coast: null };
 const PALETTE = ["#ffffff", "#ff7ac6", "#b8f35a", "#ffd166", "#c77dff", "#7fffd4"];
@@ -293,11 +295,42 @@ function drawLayers(c, s, d, P, o) {
       if (q) { c.strokeStyle = k === s.sel ? "#fff" : col; c.lineWidth = 2; c.beginPath(); c.arc(q[0], q[1], 6 * u, 0, 6.2832); c.stroke(); }
     }
     if (r.action === "downlink" && ds.gs !== null) link(tr.stations[ds.gs].lon, tr.stations[ds.gs].lat, "#ff6b9d", [5, 4]);
+    else ds.acts.gs.filter(a => a.live).forEach(a => link(tr.stations[a.st].lon, tr.stations[a.st].lat, "rgba(255,107,157,.55)", [2, 4]));
     if (!ps) return;
     c.fillStyle = rgba(col, .25); c.beginPath(); c.arc(ps[0], ps[1], 9 * u, 0, 6.2832); c.fill();
     c.fillStyle = col; c.beginPath(); c.arc(ps[0], ps[1], 4 * u, 0, 6.2832); c.fill();
     if (s.follow && k === s.sel) { c.strokeStyle = col; c.lineWidth = 1.5; c.beginPath(); c.arc(ps[0], ps[1], 13 * u, 0, 6.2832); c.stroke(); }
     c.fillStyle = "#fff"; c.fillText(sat.name, ps[0] + 15 * u, ps[1] - 10 * u);
+  });
+  if (s.labels) drawLabels(c, s, d, P, o);
+}
+
+// Etichette: piccole targhette accanto al target / alla stazione, spostate in basso se si sovrappongono
+function drawLabels(c, s, d, P, o) {
+  const { W, H, u } = o, tr = s.trace, placed = [], fs = Math.max(10, 11 * u), h = fs + 6 * u;
+  c.font = `${fs}px system-ui, sans-serif`; c.textBaseline = "middle";
+  const tag = (x, y, sat, text, colr) => {
+    const w1 = c.measureText(sat.name + " ").width, w = w1 + c.measureText(text).width + 10 * u;
+    let X = Math.min(Math.max(x, 4), W - w - 4), Y = y;
+    for (let n = 0; n < 30 && placed.some(q => X < q[0] + q[2] && X + w > q[0] && Y < q[1] + q[3] && Y + h > q[1]); n++) Y += h + 2;
+    placed.push([X, Y, w, h]);
+    c.fillStyle = "rgba(11,16,32,.86)"; c.strokeStyle = rgba(sat.color, .9); c.lineWidth = 1;
+    c.beginPath(); c.roundRect(X, Y, w, h, 4 * u); c.fill(); c.stroke();
+    c.fillStyle = sat.color; c.fillText(sat.name + " ", X + 5 * u, Y + h / 2);
+    c.fillStyle = colr; c.fillText(text, X + 5 * u + w1, Y + h / 2);
+  };
+  const COL = { pointing: "#ffffff", done: "#5ee08a", missed: "#ff6b6b" };
+  d.sats.forEach((ds, k) => {
+    const sat = tr.satellites[k];
+    ds.acts.img.forEach(a => {
+      const g = tr.targets[a.T], p = g && P(g.lon, g.lat); if (!p || p[0] < -20 || p[0] > W + 20 || p[1] < -20 || p[1] > H + 20) return;
+      const text = a.state === "pointing" ? `punta ${g.name}` : a.state === "done" ? `✔ acquisito: ${g.name}` : `✖ non acquisito: ${g.name} (${a.why})`;
+      tag(p[0] + 10 * u, p[1] - h - 4 * u, sat, text, COL[a.state]);
+    });
+    ds.acts.gs.forEach(a => {
+      const g = tr.stations[a.st], p = P(g.lon, g.lat); if (!p || p[0] < -20 || p[0] > W + 20 || p[1] < -20 || p[1] > H + 20) return;
+      tag(p[0] + 8 * u, p[1] + 10 * u, sat, `⇄ ${g.name}: ${a.text}`, a.live ? "#ffb3d1" : "#9aa7c7");
+    });
   });
 }
 
@@ -568,10 +601,19 @@ function selectSat(k) {                     // clic su un satellite: lo selezion
 }
 
 // ---------- Dati derivati -----------------------------------------------------------
-function roundAt(rounds, t) {
+function roundIdx(rounds, t) {
   let lo = 0, hi = rounds.length - 1;
   while (lo < hi) { const m = (lo + hi + 1) >> 1; if (rounds[m].t0 <= t) lo = m; else hi = m - 1; }
-  return rounds[lo];
+  return lo;
+}
+const roundAt = (rounds, t) => rounds[roundIdx(rounds, t)];
+// Stato (memoria, batteria, immagini, reward) a t: ogni round registra lo stato a fine round, quindi finché
+// il round in corso non è finito vale quello del round precedente (altrimenti l'ultima immagine riempirebbe
+// il buffer prima di comparire sulla mappa).
+function stateAt(rounds, t) {
+  const i = roundIdx(rounds, t), r = rounds[i];
+  if (t >= r.t1) return r;
+  return i > 0 ? rounds[i - 1] : Object.assign({}, r, { storage: 0, imaged: 0, reward: 0, cum_reward: 0 });
 }
 
 // raggio angolare [rad] della zona con elevazione >= el, vista da quota alt [km]
@@ -639,15 +681,57 @@ function deriveSat(tr, sat, t) {
     if (w.t0 > t && (nextUp === null || w.t0 < nextUp)) nextUp = w.t0;
   }
   const cov = S.cover ? coverageRing(lat, lon, footprintAngle(tr.meta.earth_radius_km, alt, coverElev(tr))) : [];
-  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), cov, open, gs, round: sat.rounds.length ? roundAt(sat.rounds, t) : NO_ROUND,
+  return { i, lat, lon, alt, lam, fp: footprint(lat, lon, lam), cov, open, gs, round: sat.rounds.length ? roundAt(sat.rounds, t) : NO_ROUND, state: sat.rounds.length ? stateAt(sat.rounds, t) : NO_ROUND,
+           acts: sat.rounds.length ? { img: imageActs(sat, t), gs: contactActs(tr, sat, t, roundAt(sat.rounds, t), stateAt(sat.rounds, t)) } : { img: [], gs: [] },
            up, planned, nTasks, nextUp, inContact };
+}
+// ---------- Etichette di stato sulla mappa --------------------------------------------
+// Che cosa sta facendo il satellite a t, ricavato dai round della traccia: puntamento di un target e suo esito
+// (acquisito / non acquisito), contatti con le stazioni. L'esito resta scritto per HOLD secondi simulati.
+const HOLD = 300, HOLD_GS = 180;
+function imageActs(sat, t) {
+  const R = sat.rounds; if (!R.length) return [];
+  const i = roundIdx(R, t), r = R[i], cap = sat.meta.storage_capacity || 20, out = [];
+  const same = (a, b) => a.action === "image" && b.action === "image" && a.target === b.target;
+  const running = t < r.t1 && r.action === "image" && r.target !== null;
+  if (running) out.push({ T: r.target, state: "pointing" });
+  const j = t >= r.t1 ? i : i - 1;                                  // ultimo round concluso
+  if (j >= 0 && R[j].action === "image" && R[j].target !== null && t - R[j].t1 <= HOLD && !(running && same(R[j], r))) {
+    const next = R[j + 1], ended = !!next && !same(R[j], next);
+    let j0 = j; while (j0 > 0 && same(R[j0 - 1], R[j])) j0--;
+    const done = R[j].imaged > (j0 > 0 ? R[j0 - 1].imaged : 0);
+    if (done) out.push({ T: R[j].target, state: "done" });
+    else if (ended) out.push({ T: R[j].target, state: "missed", why: missReason(R, j0, cap) });
+  }
+  return out;
+}
+// motivo plausibile di un'acquisizione mancata: ricavato solo da ciò che la traccia registra
+const missReason = (R, j0, cap) => (j0 > 0 ? R[j0 - 1].storage : 0) >= cap - 0.01 ? "memoria piena" : "finestra chiusa prima del puntamento";
+function contactActs(tr, sat, t, r, st) {
+  const out = [], plan = tr.meta.mode === "plan";
+  for (const w of sat.windows) {
+    if (w.kind !== "station" || w.t0 > t || t > w.t1 + HOLD_GS) continue;
+    const roles = tr.stations[w.obj].roles || ["uplink", "downlink"], live = t <= w.t1, parts = [];
+    if (!live) parts.push("contatto concluso");
+    else {
+      if (roles.includes("downlink")) parts.push(r.action === "downlink" ? `downlink in corso (${st.storage.toFixed(0)} img a bordo)`
+        : st.storage <= 0 ? "nessun dato da scaricare" : "downlink non in esecuzione");
+      if (plan && roles.includes("uplink")) {
+        const u = (sat.uplinks || []).find(x => x.station === w.obj && x.t >= w.t0 - 1 && x.t <= w.t1 + 1);
+        parts.push(u && u.t <= t ? (u.ok ? `uplink: piano caricato (${(u.tasks || []).length === 1 ? "1 comando" : (u.tasks || []).length + " comandi"})` : `uplink fallito (${u.reason})`) : "uplink in attesa");
+      }
+      if (!parts.length) parts.push("in vista");
+    }
+    out.push({ st: w.obj, text: parts.join(" · "), live });
+  }
+  return out;
 }
 const derive = (tr, t) => ({ sats: tr.satellites.map(s => deriveSat(tr, s, t)) });
 
 // ---------- Log eventi ---------------------------------------------------------------
 // Derivato dai dati della traccia (round, finestre, uplink, richieste): niente di più di quello che il simulatore registra.
 // Il modello non prevede manovre orbitali (la traiettoria non cambia): i «cambi di assetto» sono i puntamenti impliciti nelle azioni.
-const LOG = { open: false, tab: "sat", filter: "all", last: 0, keys: new Set(), cache: [], cacheKey: "" };
+const LOG = { open: true, tab: "sat", filter: "all", last: 0, keys: new Set(), cache: [], cacheKey: "" };
 const escHtml = x => String(x).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
 function buildLog(tr) {
@@ -661,18 +745,18 @@ function buildLog(tr) {
   const plan = tr.meta.mode === "plan";
   tr.satellites.forEach((sat, k) => {
     const imagedAt = new Map(sat.imaged.map(e => [e.target, e.t]));
-    let prev = null, runStart = 0;
-    sat.rounds.forEach(r => {
+    let prev = null, runStart = 0, runIdx = 0;
+    sat.rounds.forEach((r, ri) => {
       const key = r.action + "|" + (r.action === "image" ? r.target : "");
       if (key !== prev) {
         if (prev && prev.startsWith("image|")) {                         // l'acquisizione precedente non è andata a buon fine
           const T = +prev.split("|")[1];
-          if (!(imagedAt.has(T) && imagedAt.get(T) >= runStart)) push({ t: r.t0, scope: "sat", sat: k, kind: "fail", text: `Acquisizione mancata: ${TG(T)} (finestra chiusa prima del puntamento)` });
+          if (!(imagedAt.has(T) && imagedAt.get(T) >= runStart)) push({ t: r.t0, scope: "sat", sat: k, kind: "fail", text: `Acquisizione mancata: ${TG(T)} (${missReason(sat.rounds, runIdx, sat.meta.storage_capacity || 20)})` });
         }
         if (r.action === "image" && r.target !== null) push({ t: r.t0, scope: "sat", sat: k, kind: "image", text: `Puntamento e acquisizione: ${TG(r.target)}` });
         else if (r.action === "downlink") { const g = stationAt(sat, r.t0, "downlink"); push({ t: r.t0, scope: "sat", sat: k, kind: "downlink", text: `Puntamento nadir e downlink${g !== null ? " verso " + ST(g) : ""}` }); }
         else if (r.action === "charge") push({ t: r.t0, scope: "sat", sat: k, kind: "charge", text: "Ricarica / in attesa" });
-        prev = key; runStart = r.t0;
+        prev = key; runStart = r.t0; runIdx = ri;
       }
     });
     sat.imaged.forEach(e => push({ t: e.t, scope: "sat", sat: k, kind: "image", text: `Immagine acquisita: ${TG(e.target)}` }));
@@ -765,7 +849,7 @@ function updateCard(d) {
   const card = $("satcard"), tr = S.trace, a = S.follow && S.info ? renderer.satAnchor() : null;
   card.hidden = !a;
   if (!a) return;
-  const sat = tr.satellites[S.sel], r = d.sats[S.sel].round, gs = d.sats[S.sel].gs, cap = sat.meta.storage_capacity || 20;
+  const sat = tr.satellites[S.sel], r = d.sats[S.sel].round, st = d.sats[S.sel].state, gs = d.sats[S.sel].gs, cap = sat.meta.storage_capacity || 20;
   const tgt = r.action === "image" && r.target !== null ? tr.targets[r.target].name
     : r.action === "downlink" && gs !== null ? tr.stations[gs].name : "";
   $("cardName").textContent = sat.name; $("cardDot").style.background = sat.color;
@@ -782,13 +866,13 @@ function updateCard(d) {
       (ds.inContact ? "Contatto di uplink in corso" : ds.nextUp !== null ? `Prossimo uplink tra ${fmtT(ds.nextUp - S.t)}` : "Nessun uplink previsto nelle finestre calcolate") +
       `<br>Richieste note a bordo: ${known}`;
   }
-  $("pRew").textContent = r.reward.toFixed(3);
-  $("pCum").textContent = r.cum_reward.toFixed(3);
-  $("pImg").textContent = r.imaged;
-  $("pSto").textContent = `${r.storage.toFixed(1)} / ${cap}`;
-  $("bSto").style.width = (r.storage / cap * 100) + "%";
-  $("pBat").textContent = (r.battery * 100).toFixed(0) + " %";
-  $("bBat").style.width = (r.battery * 100) + "%";
+  $("pRew").textContent = st.reward.toFixed(3);
+  $("pCum").textContent = st.cum_reward.toFixed(3);
+  $("pImg").textContent = st.imaged;
+  $("pSto").textContent = `${st.storage.toFixed(1)} / ${cap}`;
+  $("bSto").style.width = (st.storage / cap * 100) + "%";
+  $("pBat").textContent = (st.battery * 100).toFixed(0) + " %";
+  $("bBat").style.width = (st.battery * 100) + "%";
   // posizione: se l'utente l'ha trascinato, resta alla stessa distanza dal satellite;
   // altrimenti a destra del campo visivo (a sinistra se manca spazio). Sempre dentro la mappa.
   const M = $("map"), w = card.offsetWidth, h = card.offsetHeight;
@@ -1018,6 +1102,30 @@ $("lvFiles").onchange = async e => {
   if (!errs.length && !$("cfgPanel").hidden) setTimeout(fillEditor, 300);   // l'editor riflette i file importati
 };
 
+// Il server di simulazione può essere in avvio o in riavvio (installazione delle dipendenze, nuovo episodio):
+// si riprova qualche volta e, se non risponde, si continua a controllare e «● Live» compare appena è pronto.
+async function probeLive(tries) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const ac = new AbortController(), to = setTimeout(() => ac.abort(), 4000);
+      const ok = (await fetch(LIVE + "/status", { signal: ac.signal })).ok; clearTimeout(to);
+      if (ok) return true;
+    } catch (e) { /* non ancora raggiungibile */ }
+    if (i < tries - 1) await new Promise(r => setTimeout(r, 1000));
+  }
+  return false;
+}
+function watchLive() {
+  const timer = setInterval(async () => {
+    if (!(await probeLive(1))) return;
+    clearInterval(timer);
+    const sel = $("trace");
+    if ([...sel.options].some(o => o.value === "live")) return;
+    const empty = !sel.options.length, cur = sel.value, o = new Option("● Live (simulazione)", "live");
+    sel.insertBefore(o, sel.firstChild); sel.value = cur;   // non cambia la traccia in uso
+    if (empty) { sel.value = "live"; setView("2d"); selectTrace(); }
+  }, 3000);
+}
 async function boot() {
   const msg = $("msg");
   let names = [], liveOk = false;
@@ -1028,17 +1136,16 @@ async function boot() {
     const img = new Image(); img.onload = () => { assets.earth = img; render(); }; img.src = "static/earth.jpg";
     names = list.filter(f => f.name.endsWith(".json")).map(f => f.name).sort();
   } catch (e) { /* senza tracce si può comunque usare il live */ }
-  try {                                         // il server di simulazione è opzionale
-    const ac = new AbortController(); setTimeout(() => ac.abort(), 1500);
-    liveOk = (await fetch(LIVE + "/status", { signal: ac.signal })).ok;
-  } catch (e) { /* non disponibile */ }
+  liveOk = await probeLive(3);                  // il server di simulazione è opzionale
   const opts = (liveOk ? [["live", "● Live (simulazione)"]] : []).concat(names.map(n => [n, n]));
   if (!opts.length) {
     msg.hidden = false;
-    msg.textContent = "Nessuna traccia trovata in outputs/traces. Genera: PYTHONPATH=scripts uv run python scripts/export_trace.py";
+    msg.textContent = "Nessuna traccia trovata in outputs/traces e simulazione live non raggiungibile (si riprova da sola). Genera: PYTHONPATH=scripts uv run python scripts/export_trace.py";
+    watchLive();
     return;
   }
   $("trace").innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  if (!liveOk) watchLive();
   const want = new URLSearchParams(location.search).get("trace");
   if (want && opts.some(o => o[0] === want)) $("trace").value = want;
   else if (names.length) $("trace").value = names[0];       // di default un file, non il live
@@ -1079,6 +1186,7 @@ $("info").onchange = e => setInfo(e.target.checked);
 $("infoClose").onclick = () => setInfo(false);
 $("fov").onchange = e => { S.fov = e.target.checked; render(); };
 $("cover").onchange = e => { S.cover = e.target.checked; render(); };
+$("labels").onchange = e => { S.labels = e.target.checked; render(); };
 $("track").onchange = e => { S.track = e.target.checked; render(); };
 document.querySelectorAll("#viewSeg button").forEach(b => b.onclick = () => setView(b.dataset.v));
 document.querySelectorAll("#earthSeg button").forEach(b => b.onclick = () => {

@@ -79,6 +79,8 @@ class Sim:
     def t(self):
         return self.env.simulator.sim_time
 
+    t_seen = 0.0   # copia di t aggiornata a fine reset/step: letta dai thread HTTP, che non devono toccare env mentre reset() lo ricostruisce
+
     def _env_args(self):
         """Argomenti di gym.make che dipendono da come e' definita la costellazione."""
         if self.plan:
@@ -111,6 +113,7 @@ class Sim:
                 disable_env_checker=True,
             ).unwrapped
         env = self.env
+        self.t_seen = 0.0
         env.reset(seed=seed)
         self.seed, self.sats, self.targets = seed, env.satellites, env.scenario.targets
         if self.plan:                              # finestre di accesso: calcolo nostro (vedi ground.WindowEngine)
@@ -391,6 +394,7 @@ class Sim:
         if times:
             self._last_sample = times[-1]
         self.trace["meta"]["t_end"] = t1
+        self.t_seen = t1
         return dict(t0=t0, t1=t1, done=self.done, sats=sats_delta, targets_added=added,
                     targets_removed=[e for e in removed if e])
 

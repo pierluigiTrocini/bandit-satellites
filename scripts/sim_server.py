@@ -44,7 +44,7 @@ class Hub:
 
     def status(self):
         return dict(paused=self.paused, speed="max" if self.speed is None else self.speed, done=self.sim.done,
-                    t=self.sim.t, seed=self.seed)
+                    t=self.sim.t_seen, seed=self.seed)
 
     def broadcast(self, event, payload):
         text = f"event: {event}\ndata: {payload}\n\n"
