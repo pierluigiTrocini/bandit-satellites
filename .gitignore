@@ -3,3 +3,4 @@ outputs/
 __pycache__/
 .DS_Store
 .venv/
+docs/decisioni-simulatore.md
