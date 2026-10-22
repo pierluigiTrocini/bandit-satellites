@@ -5,98 +5,135 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Viewer BSK-RL</title>
 <style>
+  /* Tema «terminale 8-bit». Palette (dal più scuro al più chiaro): #1F0318 #DD5013 #F2AF29 #FFFCF9.
+     Gli altri toni sono miscele di questi quattro colori. */
   :root {
     color-scheme: dark;
-    --bg: #0b1020; --panel: #121a2e; --line: #243049; --text: #d7def0; --muted: #8a96b3;
-    --accent: #4cc9f0; --ok: #5ee08a; --pend: #ffb454; --gs: #ff6b9d;
+    --c1: #1F0318; --c2: #DD5013; --c3: #F2AF29; --c4: #FFFCF9;
+    --bg: var(--c1);
+    --panel: color-mix(in srgb, var(--c2) 8%, var(--c1));
+    --line: color-mix(in srgb, var(--c2) 50%, var(--c1));
+    --text: var(--c4);
+    --muted: color-mix(in srgb, var(--c4) 62%, var(--c1));
+    --accent: var(--c3); --ok: var(--c4); --pend: var(--c2); --gs: var(--c3);
+    --mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; border-radius: 0 !important; }
   [hidden] { display: none !important; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
-  header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-  h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 600; }
-  select, button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
-  button { cursor: pointer; }
-  button:disabled { cursor: not-allowed; opacity: .5; }
+  html { scrollbar-color: var(--c3) var(--c1); }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 var(--mono); letter-spacing: .01em; }
+  /* scanline da CRT, molto leggere */
+  body::after { content: ""; position: fixed; inset: 0; z-index: 100; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.14) 0 1px, transparent 1px 3px); }
+  ::selection { background: var(--c3); color: var(--c1); }
+  header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 16px; border-bottom: 2px solid var(--c2); }
+  h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 700; color: var(--c3); text-transform: uppercase; letter-spacing: .08em; }
+  h1::before { content: "> "; color: var(--c2); }
+  h1::after { content: "█"; margin-left: 4px; color: var(--c3); animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { h1::after { animation: none; } }
+  select, button { font: inherit; color: var(--c4); background: var(--c1); border: 2px solid var(--c3); padding: 2px 10px; }
+  select { padding-right: 4px; }
+  button { cursor: pointer; text-transform: uppercase; letter-spacing: .04em; }
+  button:hover:not(:disabled), button:focus-visible { background: var(--c3); color: var(--c1); outline: none; }
+  button:active:not(:disabled) { background: var(--c4); color: var(--c1); }
+  button:disabled { cursor: not-allowed; opacity: .4; }
   .seg { display: inline-flex; }
-  .seg button { border-radius: 0; margin-left: -1px; }
-  .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
-  .seg button:last-child { border-radius: 0 6px 6px 0; }
-  .seg button.on { background: var(--accent); border-color: var(--accent); color: #05212b; font-weight: 600; }
+  .seg button { margin-left: -2px; }
+  .seg button:first-child { margin-left: 0; }
+  .seg button.on { background: var(--c3); border-color: var(--c3); color: var(--c1); font-weight: 700; }
   label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
-  main { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; padding: 16px; }
+  input[type=checkbox] { appearance: none; -webkit-appearance: none; margin: 0; width: 14px; height: 14px; flex: none; cursor: pointer;
+    border: 2px solid var(--c3); background: var(--c1); }
+  input[type=checkbox]:checked { background: var(--c3); box-shadow: inset 0 0 0 2px var(--c1); }
+  input[type=range] { appearance: none; -webkit-appearance: none; height: 16px; background: transparent; cursor: pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; background: var(--c1); border: 2px solid var(--c2); }
+  input[type=range]::-moz-range-track { height: 2px; background: var(--c1); border: 2px solid var(--c2); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 16px; margin-top: -7px; background: var(--c3); border: 0; }
+  input[type=range]::-moz-range-thumb { width: 10px; height: 16px; background: var(--c3); border: 0; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 16px; padding: 16px; }
   #stage { min-width: 0; }
-  #map { position: relative; width: 100%; background: #050b18; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  #map { position: relative; width: 100%; background: var(--c1); border: 2px solid var(--c3); overflow: hidden; box-shadow: 5px 5px 0 var(--line); }
   #map canvas { display: block; width: 100%; }
   .zoom { position: absolute; top: 8px; left: 8px; display: flex; flex-direction: column; gap: 4px; }
-  .zoom button { width: 28px; height: 28px; padding: 0; background: rgba(18,26,46,.85); }
+  .zoom button { width: 28px; height: 28px; padding: 0; }
   #coord { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 10em; font-size: 12px; }
   .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
-  #bar, #liveBar { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  .hint::before { content: "$ "; color: var(--c2); }
+  #bar, #liveBar { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
   #liveBar { flex-wrap: wrap; }
   #cfgPanel { margin-top: 8px; }
   #cfgPanel .cols { display: flex; gap: 10px; flex-wrap: wrap; }
   #cfgPanel label { flex: 1 1 280px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-  #cfgPanel textarea { width: 100%; box-sizing: border-box; height: 17em; resize: vertical; font: 12px/1.4 ui-monospace, monospace; tab-size: 2; white-space: pre; overflow: auto; }
-  #cfgStat { margin-top: 6px; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; }
-  #cfgStat.bad { color: #c0504d; }
-  #lvErr { margin: 8px 0 0; padding: 8px 10px; border: 1px solid #c0504d; border-radius: 6px; font: 12px/1.4 ui-monospace, monospace;
+  #cfgPanel textarea { width: 100%; box-sizing: border-box; height: 17em; resize: vertical; font: 12px/1.4 var(--mono); tab-size: 2; white-space: pre; overflow: auto;
+    background: var(--c1); color: var(--c4); border: 2px solid var(--c2); scrollbar-color: var(--c3) var(--c1); }
+  #cfgPanel textarea:focus { outline: none; border-color: var(--c3); }
+  #cfgStat { margin-top: 6px; font: 12px/1.4 var(--mono); white-space: pre-wrap; }
+  #cfgStat.bad { color: var(--c2); }
+  #lvErr { margin: 8px 0 0; padding: 8px 10px; border: 2px solid var(--c2); color: var(--c2); font: 12px/1.4 var(--mono);
     white-space: pre-wrap; max-height: 9em; overflow: auto; cursor: pointer; }
   #lvInfo { color: var(--muted); font-size: 12px; }
-  #lvLive.on { background: #e5484d; border-color: #e5484d; color: #fff; font-weight: 600; }
-  #time { flex: 1; accent-color: var(--accent); }
-  #clock { font-variant-numeric: tabular-nums; min-width: 8.5em; text-align: right; color: var(--muted); }
-  aside { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; align-self: start; }
-  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
+  #lvLive.on { background: var(--c2); border-color: var(--c2); color: var(--c4); font-weight: 700; }
+  #time { flex: 1; }
+  #clock { font-variant-numeric: tabular-nums; min-width: 8.5em; text-align: right; color: var(--c3); }
+  aside { background: var(--panel); border: 2px solid var(--c2); padding: 14px; align-self: start; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--c3); margin: 14px 0 6px; font-weight: 700; }
+  h2::before { content: "## "; color: var(--c2); }
   h2:first-child { margin-top: 0; }
-  h2 span { float: right; text-transform: none; letter-spacing: 0; }
+  h2 span { float: right; text-transform: none; letter-spacing: 0; color: var(--c4); font-weight: 400; }
   dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; }
   dt { color: var(--muted); } dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-  .bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin: 2px 0 8px; }
-  .bar i { display: block; height: 100%; width: 0; background: var(--accent); }
-  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
-  .legend div { margin: 2px 0; color: var(--muted); }
+  /* barre a blocchi */
+  .bar { height: 12px; background: var(--c1); border: 2px solid var(--c2); margin: 2px 0 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background-color: var(--c2);
+    background-image: repeating-linear-gradient(90deg, transparent 0 6px, var(--c1) 6px 8px); }
+  .bar i.bat { background-color: var(--c3); }
+  .dot { display: inline-block; width: 9px; height: 9px; margin-right: 6px; }
+  .legend div { margin: 3px 0; color: var(--muted); }
   details { margin-top: 14px; color: var(--muted); font-size: 12px; }
-  #msg { color: var(--pend); padding: 16px; }
+  summary { cursor: pointer; color: var(--c3); }
+  summary:hover { color: var(--c4); }
+  #msg { color: var(--c3); padding: 16px; }
   /* riquadro del satellite: appare accanto al satellite quando è seguito */
-  #satcard { position: absolute; z-index: 2; width: 230px; max-height: calc(100% - 16px); display: flex; flex-direction: column; font-size: 12px;
-    background: rgba(18,26,46,.93); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(3px); }
-  #satcard .body { overflow-y: auto; min-height: 0; }
-  #satcard .head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 6px;
+  #satcard { position: absolute; z-index: 2; width: 236px; max-height: calc(100% - 16px); display: flex; flex-direction: column; font-size: 12px;
+    background: var(--c1); border: 2px solid var(--c3); padding: 10px 12px; box-shadow: 4px 4px 0 var(--line); }
+  #satcard .body { overflow-y: auto; min-height: 0; scrollbar-color: var(--c3) var(--c1); }
+  #satcard .head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 6px; text-transform: uppercase;
     cursor: grab; touch-action: none; user-select: none; }
   #satcard.dragging .head { cursor: grabbing; }
-  #satcard .head button { padding: 0 6px; line-height: 18px; border: 0; background: none; color: var(--muted); font-size: 16px; }
+  #satcard .head button { padding: 0 6px; line-height: 18px; border: 0; background: none; color: var(--c3); font-size: 16px; }
+  #satcard .head button:hover { background: var(--c3); color: var(--c1); }
   #satcard h2 { margin: 10px 0 4px; }
   #satcard details { margin-top: 10px; font-size: 12px; }
-  #satcard summary { cursor: pointer; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: 600; }
+  #satcard summary { cursor: pointer; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; font-weight: 700; }
   #satcard dl { margin-top: 6px; }
   .act { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .badge { padding: 1px 8px; border-radius: 10px; font-weight: 600; color: #05212b; background: var(--accent); }
-  .badge.downlink { background: var(--gs); } .badge.charge { background: var(--ok); }
+  .badge { padding: 0 8px; font-weight: 700; text-transform: uppercase; color: var(--c1); background: var(--c3); }
+  .badge.downlink { background: var(--c4); } .badge.charge { background: var(--c2); color: var(--c4); }
   .sub { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
-  #logWrap { margin-top: 10px; }
+  #logWrap { margin-top: 12px; }
   #logToggle { font-size: 12px; }
-  #logPanel { margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; background: rgba(18,26,46,.6); }
-  #logHead { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  #logPanel { margin-top: 6px; border: 2px solid var(--c2); background: var(--panel); }
+  #logHead { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border-bottom: 2px solid var(--c2); }
   #logCount { color: var(--muted); font-size: 11px; margin-left: auto; }
-  #logList { max-height: 230px; overflow-y: auto; padding: 4px 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  #logList .lg { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px dashed rgba(255,255,255,.05); align-items: baseline; }
+  #logList { max-height: 230px; overflow-y: auto; padding: 4px 10px; font: 12px/1.45 var(--mono); scrollbar-color: var(--c3) var(--c1); }
+  #logList .lg { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px dashed var(--line); align-items: baseline; }
   #logList .lg time { color: var(--muted); flex: none; }
   #logList .lg .sn { flex: none; min-width: 54px; font-weight: 700; }
-  #logList .lg .sn.gs { color: var(--muted); font-weight: 500; }
-  #logList .lg .k { flex: none; min-width: 74px; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
-  #logList .k.image { color: var(--accent); } #logList .k.downlink, #logList .k.rx { color: var(--gs); } #logList .k.uplink, #logList .k.tx { color: #ffd166; }
-  #logList .k.charge { color: var(--ok); } #logList .k.contact { color: var(--muted); } #logList .k.fail { color: #ff7b7b; } #logList .k.req { color: #c9a7ff; }
-  #logList details { flex: 1; } #logList summary { cursor: pointer; }
+  #logList .lg .sn.gs { color: var(--muted); font-weight: 400; }
+  #logList .lg .k { flex: none; min-width: 74px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  #logList .k.image { color: var(--c4); } #logList .k.downlink, #logList .k.rx { color: var(--c3); } #logList .k.uplink, #logList .k.tx { color: var(--c3); }
+  #logList .k.charge { color: var(--c4); } #logList .k.contact { color: var(--muted); } #logList .k.fail { color: var(--c2); } #logList .k.req { color: var(--c3); }
+  #logList details { flex: 1; margin-top: 0; } #logList summary { cursor: pointer; }
   #logList ul { margin: 3px 0 4px 16px; padding: 0; color: var(--muted); }
   #logList .empty { color: var(--muted); padding: 8px 0; }
   #logNote { margin: 0; padding: 6px 10px 8px; }
   #notices { margin: 0 0 14px; }
-  #notices .note { border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; padding: 7px 10px; margin-top: 6px; font-size: 12px; line-height: 1.4; }
-  #notices .note.warning { border-left-color: #ffb454; background: rgba(255,180,84,.08); }
+  #notices .note { border: 2px solid var(--line); border-left: 6px solid var(--c3); padding: 7px 10px; margin-top: 6px; font-size: 12px; line-height: 1.4; }
+  #notices .note.warning { border-left-color: var(--c2); background: color-mix(in srgb, var(--c2) 12%, var(--c1)); }
   #notices .note.info { border-left-color: var(--muted); }
-  #notices .note b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
-  #notices .note.warning b { color: #ffb454; }
+  #notices .note b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }
+  #notices .note.warning b { color: var(--c3); }
   #satcard .plan { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.5; }
   @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px; } }
 </style>
@@ -140,7 +177,7 @@
           <h2>Buffer immagini <span id="pSto"></span></h2>
           <div class="bar"><i id="bSto"></i></div>
           <h2>Batteria <span id="pBat"></span></h2>
-          <div class="bar"><i id="bBat" style="background:var(--ok)"></i></div>
+          <div class="bar"><i id="bBat" class="bat"></i></div>
           <details><summary>Episodio</summary><dl id="meta"></dl></details>
         </div>
       </div>
@@ -196,13 +233,13 @@
       <div id="legSats"></div>
       <div><span class="dot" style="background:var(--pend)"></span>target in attesa (più opaco = priorità alta)</div>
       <div><span class="dot" style="background:var(--ok)"></span>target ripreso</div>
-      <div><span class="dot" style="border:1.5px solid var(--accent)"></span>finestra di accesso aperta</div>
-      <div><span class="dot" style="border:2px solid #fff"></span>target assegnato al round</div>
-      <div><span style="color:var(--ok);margin-right:5px">✔</span>etichette di stato: acquisito (verde), <span style="color:#ff6b6b">✖ non acquisito</span> (rosso, con il motivo), contatti con le stazioni (rosa)</div>
-      <div><span class="dot" style="border:1.5px dashed #fff"></span><span id="legCov">copertura dati (tratteggio, colore del satellite)</span></div>
-      <div id="legDyn" hidden><span class="dot" style="border:1.5px dashed var(--pend)"></span>richiesta non ancora nota al satellite selezionato (attende l'uplink)</div>
-      <div id="legPlan" hidden><span class="dot" style="border:2px solid #ffd166"></span>richiesta nel piano caricato sul satellite selezionato</div>
-      <div><span style="color:var(--gs);margin-right:5px">▲</span>stazione a terra</div>
+      <div><span class="dot" style="border:2px solid var(--c3)"></span>finestra di accesso aperta</div>
+      <div><span class="dot" style="border:2px solid var(--c4)"></span>target assegnato al round</div>
+      <div><span style="color:var(--c4);margin-right:5px">✔</span>etichette di stato: acquisito (chiaro), <span style="color:var(--c2)">✖ non acquisito</span> (arancione, con il motivo), contatti con le stazioni (ambra)</div>
+      <div><span class="dot" style="border:2px dashed var(--c4)"></span><span id="legCov">copertura dati (tratteggio, colore del satellite)</span></div>
+      <div id="legDyn" hidden><span class="dot" style="border:2px dashed var(--pend)"></span>richiesta non ancora nota al satellite selezionato (attende l'uplink)</div>
+      <div id="legPlan" hidden><span class="dot" style="border:2px dashed var(--c4);outline:0"></span>richiesta nel piano caricato sul satellite selezionato</div>
+      <div><span style="color:var(--c3);margin-right:5px">▲</span>stazione a terra</div>
     </div>
     <details><summary>Limiti del modello</summary><p id="note"></p></details>
   </aside>
@@ -215,8 +252,15 @@ const $ = id => document.getElementById(id);
 const S = { trace: null, t: 0, playing: false, speed: 300, view: "2d", earth: "image", fov: true, cover: true, labels: true, track: true,
             follow: false, info: true, cardOff: null, sel: 0 };
 const assets = { earth: null, coast: null };
-const PALETTE = ["#ffffff", "#ff7ac6", "#b8f35a", "#ffd166", "#c77dff", "#7fffd4"];
+// Tema «terminale 8-bit»: palette #1F0318 (sfondo) #DD5013 #F2AF29 #FFFCF9; gli altri toni sono miscele di questi.
+const BG = "#1F0318", OR = "#DD5013", AM = "#F2AF29", CR = "#FFFCF9";
+const MONO = 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+const hex2rgb = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+const mix = (a, b, t) => { const A = hex2rgb(a), B = hex2rgb(b); return "#" + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, "0")).join(""); };
+const DIM = mix(BG, CR, .62), SEA = mix(BG, OR, .09);
+const PALETTE = [CR, AM, mix(CR, OR, .5), mix(CR, AM, .5), mix(AM, OR, .5), OR];   // un colore per satellite (il nome li distingue)
 const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const GRID = rgba(OR, .3);
 const wrap = x => x > 180 ? x - 360 : x < -180 ? x + 360 : x;
 const lerp = (a, b, u) => a + (b - a) * u;
 
@@ -239,10 +283,12 @@ function path(c, lons, lats, to, P, wrapBreak) {   // polilinea interrotta dove 
   c.stroke();
 }
 
+const halo = (c, text, x, y, fill) => { c.lineJoin = "round"; c.lineWidth = 3; c.strokeStyle = BG; c.strokeText(text, x, y); c.fillStyle = fill; c.fillText(text, x, y); };
+
 function drawLayers(c, s, d, P, o) {
   const { W, H, u } = o, tr = s.trace, ER = tr.meta.earth_radius_km;
   const inside = p => p && p[0] > -60 && p[0] < W + 60 && p[1] > -60 && p[1] < H + 60;
-  c.font = `${Math.max(10, 11 * u)}px system-ui, sans-serif`; c.textBaseline = "middle";
+  c.font = `${Math.max(10, 11 * u)}px ${MONO}`; c.textBaseline = "middle";
 
   if (s.track) tr.satellites.forEach((sat, k) => {
     const T = sat.track, sel = k === s.sel;
@@ -252,8 +298,8 @@ function drawLayers(c, s, d, P, o) {
   tr.stations.forEach(g => {
     const p = P(g.lon, g.lat); if (!inside(p)) return;
     const r = 4 * u;
-    c.fillStyle = "#ff6b9d"; c.beginPath(); c.moveTo(p[0], p[1] - r); c.lineTo(p[0] + r, p[1] + r); c.lineTo(p[0] - r, p[1] + r); c.closePath(); c.fill();
-    c.fillStyle = "rgba(255,200,220,.9)"; c.fillText(g.name, p[0] + r + 3, p[1]);
+    c.fillStyle = AM; c.beginPath(); c.moveTo(p[0], p[1] - r); c.lineTo(p[0] + r, p[1] + r); c.lineTo(p[0] - r, p[1] + r); c.closePath(); c.fill();
+    halo(c, g.name, p[0] + r + 3, p[1], CR);
   });
   const open = d.sats[s.sel].open;           // finestre aperte: del satellite selezionato
   const selSat = tr.satellites[s.sel], planned = d.sats[s.sel].planned;
@@ -262,11 +308,11 @@ function drawLayers(c, s, d, P, o) {
     const p = P(g.lon, g.lat); if (!inside(p)) return;
     const r = (1.4 + 1.8 * Math.min(g.priority, 1)) * u, alpha = .3 + .7 * Math.min(g.priority, 1);
     const imaged = tr._imagedAt[i] <= s.t, pending = !imaged && !isKnown(tr, selSat, i, s.t);
-    c.beginPath(); c.arc(p[0], p[1], r, 0, 6.2832);
-    if (pending) { c.setLineDash([2, 2]); c.strokeStyle = `rgba(255,180,84,${alpha})`; c.lineWidth = 1.2; c.stroke(); c.setLineDash([]); }
-    else { c.fillStyle = imaged ? "#5ee08a" : `rgba(255,180,84,${alpha})`; c.fill(); }
-    if (planned.has(i) && !imaged) { c.strokeStyle = "#ffd166"; c.lineWidth = 1.6; c.beginPath(); c.arc(p[0], p[1], r + 4.5 * u, 0, 6.2832); c.stroke(); }
-    if (open.has(i)) { c.strokeStyle = "#4cc9f0"; c.lineWidth = 1.2; c.beginPath(); c.arc(p[0], p[1], r + 2.5 * u, 0, 6.2832); c.stroke(); }
+    const sq = (rr, dash) => { c.setLineDash(dash); c.beginPath(); c.rect(p[0] - rr, p[1] - rr, 2 * rr, 2 * rr); };   // i target sono quadrati (pixel)
+    if (pending) { sq(r, [2, 2]); c.strokeStyle = rgba(OR, alpha); c.lineWidth = 1.2; c.stroke(); c.setLineDash([]); }
+    else { sq(r, []); c.fillStyle = imaged ? CR : rgba(OR, alpha); c.fill(); }
+    if (planned.has(i) && !imaged) { sq(r + 4.5 * u, [3, 2]); c.strokeStyle = CR; c.lineWidth = 1.4; c.stroke(); c.setLineDash([]); }
+    if (open.has(i)) { sq(r + 2.5 * u, []); c.strokeStyle = AM; c.lineWidth = 1.6; c.stroke(); }
   });
   if (s.fov) d.sats.forEach((ds, k) => {
     const col = tr.satellites[k].color, pts = ds.fp.map(q => P(q[0], q[1]));
@@ -292,15 +338,15 @@ function drawLayers(c, s, d, P, o) {
     if (r.action === "image" && r.target !== null) {
       const g = tr.targets[r.target], q = P(g.lon, g.lat);
       link(g.lon, g.lat, rgba(col, .9), []);
-      if (q) { c.strokeStyle = k === s.sel ? "#fff" : col; c.lineWidth = 2; c.beginPath(); c.arc(q[0], q[1], 6 * u, 0, 6.2832); c.stroke(); }
+      if (q) { c.strokeStyle = k === s.sel ? CR : col; c.lineWidth = 2; c.strokeRect(q[0] - 6 * u, q[1] - 6 * u, 12 * u, 12 * u); }
     }
-    if (r.action === "downlink" && ds.gs !== null) link(tr.stations[ds.gs].lon, tr.stations[ds.gs].lat, "#ff6b9d", [5, 4]);
-    else ds.acts.gs.filter(a => a.live).forEach(a => link(tr.stations[a.st].lon, tr.stations[a.st].lat, "rgba(255,107,157,.55)", [2, 4]));
+    if (r.action === "downlink" && ds.gs !== null) link(tr.stations[ds.gs].lon, tr.stations[ds.gs].lat, AM, [5, 4]);
+    else ds.acts.gs.filter(a => a.live).forEach(a => link(tr.stations[a.st].lon, tr.stations[a.st].lat, rgba(AM, .6), [2, 4]));
     if (!ps) return;
-    c.fillStyle = rgba(col, .25); c.beginPath(); c.arc(ps[0], ps[1], 9 * u, 0, 6.2832); c.fill();
-    c.fillStyle = col; c.beginPath(); c.arc(ps[0], ps[1], 4 * u, 0, 6.2832); c.fill();
-    if (s.follow && k === s.sel) { c.strokeStyle = col; c.lineWidth = 1.5; c.beginPath(); c.arc(ps[0], ps[1], 13 * u, 0, 6.2832); c.stroke(); }
-    c.fillStyle = "#fff"; c.fillText(sat.name, ps[0] + 15 * u, ps[1] - 10 * u);
+    c.fillStyle = rgba(col, .25); c.fillRect(ps[0] - 9 * u, ps[1] - 9 * u, 18 * u, 18 * u);
+    c.fillStyle = col; c.fillRect(ps[0] - 4 * u, ps[1] - 4 * u, 8 * u, 8 * u);
+    if (s.follow && k === s.sel) { c.strokeStyle = col; c.lineWidth = 2; c.strokeRect(ps[0] - 13 * u, ps[1] - 13 * u, 26 * u, 26 * u); }
+    halo(c, sat.name, ps[0] + 15 * u, ps[1] - 10 * u, CR);
   });
   if (s.labels) drawLabels(c, s, d, P, o);
 }
@@ -308,18 +354,18 @@ function drawLayers(c, s, d, P, o) {
 // Etichette: piccole targhette accanto al target / alla stazione, spostate in basso se si sovrappongono
 function drawLabels(c, s, d, P, o) {
   const { W, H, u } = o, tr = s.trace, placed = [], fs = Math.max(10, 11 * u), h = fs + 6 * u;
-  c.font = `${fs}px system-ui, sans-serif`; c.textBaseline = "middle";
+  c.font = `${fs}px ${MONO}`; c.textBaseline = "middle";
   const tag = (x, y, sat, text, colr) => {
     const w1 = c.measureText(sat.name + " ").width, w = w1 + c.measureText(text).width + 10 * u;
     let X = Math.min(Math.max(x, 4), W - w - 4), Y = y;
     for (let n = 0; n < 30 && placed.some(q => X < q[0] + q[2] && X + w > q[0] && Y < q[1] + q[3] && Y + h > q[1]); n++) Y += h + 2;
     placed.push([X, Y, w, h]);
-    c.fillStyle = "rgba(11,16,32,.86)"; c.strokeStyle = rgba(sat.color, .9); c.lineWidth = 1;
-    c.beginPath(); c.roundRect(X, Y, w, h, 4 * u); c.fill(); c.stroke();
+    c.fillStyle = rgba(BG, .92); c.strokeStyle = sat.color; c.lineWidth = 1.5;
+    c.beginPath(); c.rect(X, Y, w, h); c.fill(); c.stroke();
     c.fillStyle = sat.color; c.fillText(sat.name + " ", X + 5 * u, Y + h / 2);
     c.fillStyle = colr; c.fillText(text, X + 5 * u + w1, Y + h / 2);
   };
-  const COL = { pointing: "#ffffff", done: "#5ee08a", missed: "#ff6b6b" };
+  const COL = { pointing: AM, done: CR, missed: OR };
   d.sats.forEach((ds, k) => {
     const sat = tr.satellites[k];
     ds.acts.img.forEach(a => {
@@ -329,7 +375,7 @@ function drawLabels(c, s, d, P, o) {
     });
     ds.acts.gs.forEach(a => {
       const g = tr.stations[a.st], p = P(g.lon, g.lat); if (!p || p[0] < -20 || p[0] > W + 20 || p[1] < -20 || p[1] > H + 20) return;
-      tag(p[0] + 8 * u, p[1] + 10 * u, sat, `⇄ ${g.name}: ${a.text}`, a.live ? "#ffb3d1" : "#9aa7c7");
+      tag(p[0] + 8 * u, p[1] + 10 * u, sat, `⇄ ${g.name}: ${a.text}`, a.live ? AM : DIM);
     });
   });
 }
@@ -451,19 +497,19 @@ class Map2D extends BaseView {
     this.sats = d.sats;
     const sc = this.sc, left = this.cam.cx - W / 2 / sc, right = this.cam.cx + W / 2 / sc;
     const copies = []; for (let k = Math.floor((left + 180) / 360); k <= Math.floor((right + 180) / 360); k++) copies.push(360 * k);
-    c.fillStyle = "#050b18"; c.fillRect(0, 0, W, H);
+    c.fillStyle = SEA; c.fillRect(0, 0, W, H);
     c.imageSmoothingQuality = "high";
     for (this.off of copies) {
       if (s.earth === "image" && assets.earth) c.drawImage(assets.earth, this.X(-180), this.Y(90), 360 * sc, 180 * sc);
       if (s.earth === "outline" && assets.coast) {
-        c.strokeStyle = "rgba(190,205,235,.75)"; c.lineWidth = 1;
+        c.strokeStyle = rgba(AM, .85); c.lineWidth = 1;
         const P = (lo, la) => [this.X(lo), this.Y(la)];
         for (const l of assets.coast) path(c, l.lon, l.lat, l.lon.length - 1, P, false);
       }
     }
     this.off = 0;
     const step = [.5, 1, 2, 5, 10, 15, 30].find(g => g * sc >= 45) ?? 30;
-    c.strokeStyle = "rgba(255,255,255,.08)"; c.lineWidth = 1; c.beginPath();
+    c.strokeStyle = GRID; c.lineWidth = 1; c.beginPath();
     for (let lo = Math.ceil(left / step) * step; lo <= right; lo += step) { c.moveTo(this.X(lo), 0); c.lineTo(this.X(lo), H); }
     for (let la = -90; la <= 90; la += step) { c.moveTo(0, this.Y(la)); c.lineTo(W, this.Y(la)); }
     c.stroke();
@@ -553,23 +599,18 @@ class Globe3D extends BaseView {
     if (s.follow) this.setCenter(sel.lon, sel.lat);
     this.upd(); this.sats = d.sats;
     const R = this.R, cx = W / 2, cy = H / 2, P = (lo, la, rho) => this.P(lo, la, rho);
-    c.fillStyle = "#050b18"; c.fillRect(0, 0, W, H);
-    const glow = c.createRadialGradient(cx, cy, R * .98, cx, cy, R * 1.12);       // alone atmosferico
-    glow.addColorStop(0, "rgba(76,201,240,.45)"); glow.addColorStop(1, "rgba(76,201,240,0)");
-    c.fillStyle = glow; c.beginPath(); c.arc(cx, cy, R * 1.12, 0, 6.2832); c.fill();
+    c.fillStyle = BG; c.fillRect(0, 0, W, H);
     if (s.earth === "image" && this.renderEarth()) { c.imageSmoothingEnabled = true; c.drawImage(this.off, 0, 0, W, H); }
     else {
-      const sh = c.createRadialGradient(cx - R * .3, cy - R * .3, R * .1, cx, cy, R);
-      sh.addColorStop(0, "#14233f"); sh.addColorStop(1, "#070d1c");
-      c.fillStyle = sh; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.fill();
+      c.fillStyle = SEA; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.fill();
       if (s.earth === "outline" && assets.coast) {
-        c.strokeStyle = "rgba(205,220,250,.95)"; c.lineWidth = 1.3;
+        c.strokeStyle = rgba(AM, .95); c.lineWidth = 1.3;
         for (const l of assets.coast) path(c, l.lon, l.lat, l.lon.length - 1, P, false);
       }
     }
-    c.strokeStyle = "rgba(255,255,255,.09)"; c.lineWidth = 1;
+    c.strokeStyle = GRID; c.lineWidth = 1;
     for (const gl of GRAT) path(c, gl.lon, gl.lat, gl.lon.length - 1, P, false);
-    c.strokeStyle = "rgba(255,255,255,.25)"; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.stroke();
+    c.strokeStyle = AM; c.lineWidth = 2; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.stroke();
     drawLayers(c, s, d, P, { W, H, u, wrap: false, alt: true });
   }
 }
