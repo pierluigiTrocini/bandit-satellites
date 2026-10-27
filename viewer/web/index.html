@@ -747,7 +747,7 @@ function imageActs(sat, t) {
   return out;
 }
 // motivo plausibile di un'acquisizione mancata: ricavato solo da ciò che la traccia registra
-const missReason = (R, j0, cap) => (j0 > 0 ? R[j0 - 1].storage : 0) >= cap - 0.01 ? "memoria piena" : "finestra chiusa prima del puntamento";
+const missReason = (R, j0, cap) => R[j0] && R[j0].why ? R[j0].why : (j0 > 0 ? R[j0 - 1].storage : 0) >= cap - 0.01 ? "memoria piena" : "finestra chiusa prima del puntamento";
 function contactActs(tr, sat, t, r, st) {
   const out = [], plan = tr.meta.mode === "plan";
   for (const w of sat.windows) {
@@ -873,7 +873,7 @@ $("logReq").onchange = $("logContact").onchange = () => updateLog(true);
 
 // ---------- UI ----------------------------------------------------------------------
 const fmtT = s => { s = Math.round(s); return `${String((s / 3600) | 0).padStart(2, "0")}:${String(((s % 3600) / 60) | 0).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
-const ACT = { image: "Image", downlink: "Downlink", charge: "Charge" };
+const ACT = { image: "Image", downlink: "Downlink", charge: "Charge", idle: "Idle" };
 
 function render() {
   const tr = S.trace; if (!tr || !renderer) return;

@@ -1,0 +1,62 @@
+{
+  "schema": "model/v1",
+  "name": "Esempio AEOSSP: 2 satelliti agili, 24 ore, 150 target",
+  "_nota": "Livello astratto fedele al paper (Wang et al., 2020). Tutti i valori sono neutri/illustrativi, non descrivono un satellite reale. Downlink escluso (come nel paper). Gli esiti sono stocastici (celle con probabilita' di cielo sereno diverse): metti outcomes.model = deterministic per il caso del paper.",
+  "seed": 4,
+  "epoch": "2025-03-21T00:00:00Z",
+  "horizon_hours": 12,
+  "downlink": "none",
+  "satellite_defaults": {
+    "agility": "agile",
+    "observation_s": 2,
+    "min_elevation_deg": 50,
+    "slew": {
+      "max_rate_deg_s": 1.0,
+      "max_accel_deg_s2": 0.5,
+      "settle_s": 5
+    },
+    "resources": {
+      "memory_capacity_gbit": 6,
+      "data_rate_mbps": 800,
+      "energy_capacity_wh": 5,
+      "imaging_power_w": 100,
+      "maneuver_power_w": 200
+    }
+  },
+  "walker": {
+    "sats": 2,
+    "planes": 2,
+    "phasing": 1,
+    "altitude_km": 500,
+    "inclination_deg": 55
+  },
+  "targets": {
+    "mode": "random",
+    "count": 150,
+    "priority": {
+      "min": 0.1,
+      "max": 1.0
+    },
+    "n_max": 1
+  },
+  "classes": {
+    "cell_deg": 30
+  },
+  "discretization": {
+    "step_s": 20
+  },
+  "budgets": {
+    "scope": "cycle"
+  },
+  "feedback": {
+    "latency_rounds": 0
+  },
+  "outcomes": {
+    "model": "cell_bernoulli",
+    "p_min": 0.2,
+    "p_max": 0.95,
+    "quality_min": 0.6,
+    "quality_max": 1.0,
+    "offnadir_penalty": 0.3
+  }
+}
